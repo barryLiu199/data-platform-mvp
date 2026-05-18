@@ -112,6 +112,79 @@ async def notify(rule, event: dict) -> bool:
         html_body = content.replace("\n", "<br>").replace("**", "<b>").replace("**", "</b>")
         return send_email(email, title, html_body)
 
+    elif rule.notify_type == "dingtalk":
+        url = config.get("webhook_url", "")
+        if not url:
+            logger.warning(f"规则 {rule.name} 钉钉 Webhook URL 为空")
+            return False
+        return await send_dingtalk_webhook(url, title, content)
+
+    elif rule.notify_type == "wecom":
+        url = config.get("webhook_url", "")
+        if not url:
+            logger.warning(f"规则 {rule.name} 企微 Webhook URL 为空")
+            return False
+        return await send_wecom_webhook(url, title, content)
+
     else:
         logger.warning(f"不支持的通知类型: {rule.notify_type}")
+        return False
+
+
+async def send_dingtalk_webhook(webhook_url: str, title: str, content: str) -> bool:
+    """发送钉钉机器人消息"""
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {"title": title, "text": f"### {title}\n{content}"},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(webhook_url, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("errcode") == 0:
+                    return True
+                logger.warning(f"钉钉 Webhook 返回错误: {data}")
+                return False
+            return False
+    except Exception as e:
+        logger.error(f"钉钉 Webhook 发送失败: {e}")
+        return False
+
+
+async def send_wecom_webhook(webhook_url: str, title: str, content: str) -> bool:
+    """发送企业微信机器人消息"""
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {"content": f"### {title}\n{content}"},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(webhook_url, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("errcode") == 0:
+                    return True
+                logger.warning(f"企微 Webhook 返回错误: {data}")
+                return False
+            return False
+    except Exception as e:
+        logger.error(f"企微 Webhook 发送失败: {e}")
+        return False
+
+
+async def test_channel(channel_type: str, config: dict) -> bool:
+    """测试通知渠道连通性"""
+    title = "测试通知"
+    content = "这是一条通知渠道测试消息，收到说明配置正确。"
+    if channel_type == "feishu_webhook":
+        return await send_feishu_webhook(config.get("webhook_url", ""), title, content)
+    elif channel_type == "dingtalk":
+        return await send_dingtalk_webhook(config.get("webhook_url", ""), title, content)
+    elif channel_type == "wecom":
+        return await send_wecom_webhook(config.get("webhook_url", ""), title, content)
+    elif channel_type == "email":
+        return send_email(config.get("email", "test@test.com"), title, content, config)
+    else:
+        logger.warning(f"未知渠道类型: {channel_type}")
         return False
