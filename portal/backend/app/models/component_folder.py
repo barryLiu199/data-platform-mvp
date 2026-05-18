@@ -17,3 +17,4 @@ class ComponentFolder(Base):
     created_by = Column(BigInteger)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    sort_order = Column(Integer, default=0, comment="排序序号")
