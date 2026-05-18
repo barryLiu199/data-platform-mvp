@@ -32,7 +32,7 @@ async def get_stats(
 
     workflow_total = 0
     yesterday_runs = yesterday_success = yesterday_failure = yesterday_pending = 0
-    trend = [0] * 7
+    trend = []
 
     if pc:
         # 工作流总数

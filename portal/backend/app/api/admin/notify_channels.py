@@ -37,7 +37,7 @@ def list_notify_channels(
         {
             "id": c.id,
             "name": c.name,
-            "type": c.type,
+            "type": c.channel_type,
             "config": _redact(c.config) if c.config else None,
             "enabled": c.enabled,
             "created_at": str(c.created_at) if c.created_at else None,
@@ -58,7 +58,7 @@ def create_notify_channel(
         raise HTTPException(400, f"无效的渠道类型: {body.type}")
     ch = SysNotifyChannel(
         name=body.name,
-        type=body.type,
+        channel_type=body.type,
         config=body.config,
         enabled=body.enabled,
         created_by=current_user.id,
@@ -66,7 +66,7 @@ def create_notify_channel(
     db.add(ch)
     db.commit()
     db.refresh(ch)
-    return {"id": ch.id, "name": ch.name, "type": ch.type}
+    return {"id": ch.id, "name": ch.name, "type": ch.channel_type}
 
 
 @router.put("/notify-channels/{channel_id}")
@@ -85,7 +85,7 @@ def update_notify_channel(
     if body.type is not None:
         if body.type not in _VALID_CHANNEL_TYPES:
             raise HTTPException(400, f"无效的渠道类型: {body.type}")
-        ch.type = body.type
+        ch.channel_type = body.type
     if body.config is not None:
         ch.config = body.config
     if body.enabled is not None:
@@ -120,7 +120,7 @@ async def test_notify_channel(
     ch = db.query(SysNotifyChannel).filter(SysNotifyChannel.id == channel_id).first()
     if not ch:
         raise HTTPException(404, "渠道不存在")
-    ok = await test_channel(channel_id)
+    ok = await test_channel(ch.channel_type, ch.config or {})
     if not ok:
         raise HTTPException(502, "通知发送失败，请检查渠道配置")
     return {"ok": True, "channel_name": ch.name}

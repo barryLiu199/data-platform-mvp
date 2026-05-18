@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useUserStore } from '../stores/user'
 import { getDashboardStats, getDSInstances } from '../api'
 import {
@@ -148,7 +148,7 @@ const donutDash = computed(() => {
 
 const statCards = computed(() => [
   { label: '数据源', value: stats.datasource_total, desc: `${stats.datasource_active} 个可用`, color: '#2B5AED', path: '/datasources' },
-  { label: '同步任务', value: stats.task_total, desc: `${stats.task_active} 个运行中`, color: '#00B42A', path: '/sync-tasks' },
+  { label: '组件', value: stats.task_total, desc: `${stats.task_active} 个运行中`, color: '#00B42A', path: '/sql-dev' },
   { label: '工作流', value: stats.workflow_total, desc: '调度编排', color: '#FF7D00', path: '/workflows' },
   { label: '词根', value: stats.word_root_count, desc: '命名规范', color: '#00C9A7', path: '/field-assets' },
   { label: '昨日执行', value: stats.yesterday_runs, desc: stats.yesterday_failure > 0 ? `${stats.yesterday_failure} 个失败` : '全部成功', color: stats.yesterday_failure > 0 ? '#F53F3F' : '#722ED1', path: '/scheduler/history' },
@@ -166,7 +166,7 @@ function trendLabel(i: number) {
 
 const quickActions = [
   { title: '新建工作流', path: '/workflows', bg: 'rgba(255,125,0,0.08)', color: '#FF7D00', icon: IconBranch },
-  { title: '新建同步任务', path: '/sync-tasks', bg: 'rgba(0,180,42,0.08)', color: '#00B42A', icon: IconSync },
+  { title: '新建组件', path: '/sql-dev', bg: 'rgba(0,180,42,0.08)', color: '#00B42A', icon: IconSync },
   { title: '数据源管理', path: '/datasources', bg: 'rgba(43,90,237,0.08)', color: '#2B5AED', icon: IconLink },
   { title: '数据目录', path: '/data-assets', bg: 'rgba(0,201,167,0.08)', color: '#00C9A7', icon: IconApps },
   { title: '运行实例', path: '/scheduler/history', bg: 'rgba(114,46,209,0.08)', color: '#722ED1', icon: IconCalendar },
@@ -203,8 +203,10 @@ function formatRunTime(t: string) {
   return d.format('MM-DD HH:mm')
 }
 
+let clockTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(async () => {
-  setInterval(() => { currentTime.value = new Date().toLocaleString('zh-CN') }, 1000)
+  clockTimer = setInterval(() => { currentTime.value = new Date().toLocaleString('zh-CN') }, 1000)
   try {
     const res: any = await getDashboardStats()
     Object.assign(stats, res)
@@ -213,6 +215,10 @@ onMounted(async () => {
     const res: any = await getDSInstances({ pageSize: 5, pageNo: 1 })
     recentRuns.value = res?.totalList?.slice(0, 5) || []
   } catch {}
+})
+
+onUnmounted(() => {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
 })
 </script>
 

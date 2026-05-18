@@ -174,6 +174,9 @@ def build_datax_job(
     # preSql / postSql：用户显式传入优先；否则全量同步自动 TRUNCATE
     effective_pre = [s for s in (pre_sql or []) if s and s.strip()]
     if not effective_pre and sync_type == "full" and truncate_before_write:
+        import re
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', target_table):
+            raise ValueError(f"Invalid target table name: {target_table}")
         effective_pre = [f"TRUNCATE TABLE {target_table}"]
     if effective_pre:
         writer_param["preSql"] = effective_pre

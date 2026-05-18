@@ -143,7 +143,8 @@ async def list_workflows(
             "pageNo": 1, "pageSize": 1,
             "processDefinitionCode": code,
         })
-        last_inst = (inst or {}).get("totalList", [None])[0]
+        last_items = (inst or {}).get("totalList") or []
+        last_inst = last_items[0] if last_items else None
 
         items.append({
             "code": code,

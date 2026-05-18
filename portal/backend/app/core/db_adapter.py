@@ -59,6 +59,9 @@ def _connect(ds: DataSource, db_override: Optional[str] = None):
         )
         # 设置 search_path 到当前数据库 schema，确保表查询能找到
         cur = conn.cursor()
+        import re
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', database):
+            raise ValueError(f"Invalid database name: {database}")
         cur.execute(f"SET search_path TO {database}, public")
         cur.close()
         return conn
@@ -374,6 +377,9 @@ def list_columns(ds: DataSource, table: str, schema: Optional[str] = None) -> Li
             ]
         if t == "hive":
             cur = conn.cursor()
+            import re
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', table):
+                raise ValueError(f"Invalid table name: {table}")
             cur.execute(f"DESCRIBE {table}")
             return [
                 {"name": r[0], "type": r[1], "nullable": True, "comment": r[2] or ""}
