@@ -140,6 +140,11 @@ const router = createRouter({
       name: 'Forbidden',
       component: () => import('../views/Forbidden.vue'),
     },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'NotFound',
+      redirect: '/dashboard',
+    },
   ],
 })
 

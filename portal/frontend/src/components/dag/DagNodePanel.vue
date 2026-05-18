@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { getComponentFolders, getComponents, getSyncTasks } from '../../api'
 import { useFileTree, TYPE_GROUPS_WITH_DATAX } from '../../composables/useFileTree'
+import { IconSearch } from '@arco-design/web-vue/es/icon'
 import LangIcon from '../LangIcon.vue'
 
 const components = ref<any[]>([])

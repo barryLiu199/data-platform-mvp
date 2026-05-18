@@ -28,6 +28,7 @@ const autoRefresh = ref(false)
 const lastUpdated = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
 let tickTimer: ReturnType<typeof setInterval> | null = null
+let rerunTimer: ReturnType<typeof setTimeout> | null = null
 
 const STATUS_TABS = [
   { label: '全部', value: '' },
@@ -70,6 +71,7 @@ onMounted(() => {
 onUnmounted(() => {
   stopAutoRefresh()
   if (tickTimer) clearInterval(tickTimer)
+  if (rerunTimer) clearTimeout(rerunTimer)
 })
 
 async function loadInstances() {
@@ -135,7 +137,7 @@ async function rerun(instanceId: number) {
   try {
     await rerunDSInstance(instanceId)
     Message.success('已触发重跑')
-    setTimeout(loadInstances, 1000)
+    rerunTimer = setTimeout(loadInstances, 1000)
   } catch (e: any) { Message.error(e?.response?.data?.detail || '重跑失败') }
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { getDSInstanceTasks, getDSTaskLog, rerunDSInstance } from '../api'
@@ -19,6 +19,7 @@ const logVisible = ref(false)
 const logContent = ref('')
 const logLoading = ref(false)
 const rerunLoading = ref(false)
+let rerunTimer: ReturnType<typeof setTimeout> | null = null
 
 const STATE_MAP: Record<string, { text: string; color: string; bg: string }> = {
   SUCCESS:           { text: '成功',   color: '#00b42a', bg: '#e8ffea' },
@@ -30,6 +31,9 @@ const STATE_MAP: Record<string, { text: string; color: string; bg: string }> = {
 }
 
 onMounted(() => loadTasks())
+onUnmounted(() => {
+  if (rerunTimer) clearTimeout(rerunTimer)
+})
 
 async function loadTasks() {
   loading.value = true
@@ -63,7 +67,7 @@ async function handleRerun() {
   try {
     await rerunDSInstance(instanceId)
     Message.success('已触发重跑')
-    setTimeout(loadTasks, 1500)
+    rerunTimer = setTimeout(loadTasks, 1500)
   } catch (e: any) {
     Message.error(e?.response?.data?.detail || '重跑失败')
   } finally { rerunLoading.value = false }
