@@ -1,12 +1,13 @@
 <template>
   <div class="admin-page">
-    <div class="page-header">
-      <h2>用户管理</h2>
-      <a-button type="primary" @click="openCreate">
-        <template #icon><icon-plus /></template>
-        新建用户
-      </a-button>
-    </div>
+    <PageHeader title="用户管理">
+      <template #actions>
+        <a-button type="primary" @click="openCreate">
+          <template #icon><icon-plus /></template>
+          新建用户
+        </a-button>
+      </template>
+    </PageHeader>
 
     <a-card :bordered="false">
       <div class="toolbar">
@@ -112,6 +113,7 @@ import { IconPlus } from '@arco-design/web-vue/es/icon'
 import {
   adminListUsers, adminCreateUser, adminUpdateUser, adminDeleteUser, adminListRoles,
 } from '../../api'
+import PageHeader from '../../components/PageHeader.vue'
 
 const loading = ref(false)
 const users = ref<any[]>([])
@@ -201,7 +203,5 @@ onMounted(() => {
 
 <style scoped>
 .admin-page { padding: 0; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
 .toolbar { display: flex; gap: 12px; }
 </style>

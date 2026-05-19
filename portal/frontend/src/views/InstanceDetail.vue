@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
+import { getExecutionStatus } from '../constants/status'
 import { getDSInstanceTasks, getDSTaskLog, rerunDSInstance } from '../api'
 
 interface Task {
@@ -21,13 +22,8 @@ const logLoading = ref(false)
 const rerunLoading = ref(false)
 let rerunTimer: ReturnType<typeof setTimeout> | null = null
 
-const STATE_MAP: Record<string, { text: string; color: string; bg: string }> = {
-  SUCCESS:           { text: '成功',   color: '#00b42a', bg: '#e8ffea' },
-  FAILURE:           { text: '失败',   color: '#f53f3f', bg: '#ffece8' },
-  RUNNING_EXECUTION: { text: '运行中', color: '#165dff', bg: '#e8f3ff' },
-  STOP:              { text: '停止',   color: '#86909c', bg: '#f2f3f5' },
-  KILL:              { text: '已终止', color: '#ff7d00', bg: '#fff7e8' },
-  NEED_FAULT_TOLERANCE: { text: '容错中', color: '#ff7d00', bg: '#fff7e8' },
+function stateInfo(state: string) {
+  return getExecutionStatus(state)
 }
 
 onMounted(() => loadTasks())
@@ -73,10 +69,6 @@ async function handleRerun() {
   } finally { rerunLoading.value = false }
 }
 
-function stateInfo(state: string) {
-  return STATE_MAP[state] || { text: state, color: '#86909c', bg: '#f2f3f5' }
-}
-
 function formatTime(ts: string): string {
   const d = new Date(ts)
   if (isNaN(d.getTime())) return ts
@@ -120,7 +112,7 @@ function formatDuration(s: number): string {
               <span class="tl-name">{{ task.name }}</span>
               <span class="tl-badge"
                 :style="{ color: stateInfo(task.state).color, background: stateInfo(task.state).bg }">
-                {{ stateInfo(task.state).text }}
+                {{ stateInfo(task.state).label }}
               </span>
             </div>
             <div class="tl-card__meta">
@@ -146,34 +138,34 @@ function formatDuration(s: number): string {
 </template>
 
 <style scoped>
-.detail-page { padding: 20px; max-width: 900px; }
+.detail-page { padding: var(--space-5); max-width: 900px; }
 
-.detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-.detail-title { font-size: 18px; font-weight: 600; flex: 1; }
+.detail-header { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6); }
+.detail-title { font-size: var(--font-size-xl); font-weight: var(--font-weight-semibold); flex: 1; }
 
-.detail-body { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; }
-.section-title { font-size: 14px; font-weight: 600; color: #4e5969; margin-bottom: 20px; }
+.detail-body { background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-6); }
+.section-title { font-size: var(--font-size-base); font-weight: var(--font-weight-semibold); color: var(--color-text-secondary); margin-bottom: var(--space-5); }
 .section-empty { display: flex; align-items: center; justify-content: center; height: 120px; }
 
 .timeline { display: flex; flex-direction: column; }
-.tl-item { display: flex; gap: 16px; }
+.tl-item { display: flex; gap: var(--space-4); }
 .tl-left { display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0; }
 .tl-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; }
 .tl-dot--pulse { animation: pulse 1.5s ease-out infinite; }
-.tl-line { flex: 1; width: 2px; background: #e5e7eb; min-height: 20px; margin: 4px 0; }
+.tl-line { flex: 1; width: 2px; background: var(--color-border); min-height: 20px; margin: 4px 0; }
 
-.tl-card { flex: 1; padding-bottom: 20px; }
+.tl-card { flex: 1; padding-bottom: var(--space-5); }
 .tl-card__header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.tl-name { font-size: 14px; font-weight: 600; }
-.tl-badge { padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; }
-.tl-card__meta { display: flex; gap: 16px; font-size: 12px; color: #86909c; margin-bottom: 8px; }
-.tl-card__actions { display: flex; gap: 8px; }
+.tl-name { font-size: var(--font-size-base); font-weight: var(--font-weight-semibold); }
+.tl-badge { padding: 2px 10px; border-radius: 10px; font-size: var(--font-size-xs); font-weight: 500; }
+.tl-card__meta { display: flex; gap: var(--space-4); font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-bottom: var(--space-2); }
+.tl-card__actions { display: flex; gap: var(--space-2); }
 
 @keyframes pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(22, 93, 255, 0.4); }
-  70%  { box-shadow: 0 0 0 8px rgba(22, 93, 255, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(22, 93, 255, 0); }
+  0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  70%  { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 
-.log-pre { margin: 0; font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; background: #1a1a2e; color: #e2e8f0; padding: 16px; border-radius: 6px; max-height: 520px; overflow-y: auto; font-family: 'JetBrains Mono', Consolas, monospace; }
+.log-pre { margin: 0; font-size: var(--font-size-xs); line-height: 1.7; white-space: pre-wrap; word-break: break-all; background: #1a1a2e; color: #e2e8f0; padding: var(--space-4); border-radius: var(--radius-md); max-height: 520px; overflow-y: auto; font-family: var(--font-family-mono); }
 </style>

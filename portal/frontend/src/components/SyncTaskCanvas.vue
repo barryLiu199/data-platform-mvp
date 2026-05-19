@@ -10,8 +10,8 @@
           size="large"
           :disabled="isOnline"
         />
-        <a-tag :color="statusColors[task?.status || 'draft']" size="small">
-          {{ statusMap[task?.status || 'draft'] }}
+        <a-tag :color="getSyncTaskStatus(task?.status || 'draft').tagColor" size="small">
+          {{ getSyncTaskStatus(task?.status || 'draft').label }}
         </a-tag>
         <span class="path-hint" v-if="form.source_table || form.target_table">
           {{ form.source_table || '?' }} → {{ form.target_table || '?' }}
@@ -280,6 +280,7 @@ import {
   generateDDL, executeDDL, setSyncTaskStatus,
 } from '../api'
 import FieldMappingCanvas from './FieldMappingCanvas.vue'
+import { getSyncTaskStatus } from '../constants/status'
 
 const props = defineProps<{
   taskId: number | null  // null = 新建态
@@ -330,12 +331,7 @@ const ddlModalVisible = ref(false)
 const ddlText = ref('')
 const ddlExecuting = ref(false)
 
-const statusMap: Record<string, string> = {
-  draft: '草稿', active: '运行中', paused: '已暂停', error: '异常',
-}
-const statusColors: Record<string, string> = {
-  draft: 'gray', active: 'green', paused: 'orange', error: 'red',
-}
+
 
 const dsFilter = (input: string, opt: any) => {
   const txt = (opt.children?.[0]?.children || '') as string

@@ -1,8 +1,6 @@
 <template>
   <div class="admin-page">
-    <div class="page-header">
-      <h2>SSO 配置</h2>
-    </div>
+    <PageHeader title="SSO 配置" />
 
     <a-row :gutter="16">
       <a-col v-for="p in providers" :key="p.provider" :span="8">
@@ -44,6 +42,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { adminListSso, adminUpdateSso } from '../../api'
+import PageHeader from '../../components/PageHeader.vue'
 
 const providers = [
   { provider: 'dingtalk', label: '钉钉', abbr: 'DD', color: '#1677FF' },
@@ -96,8 +95,6 @@ onMounted(loadConfigs)
 
 <style scoped>
 .admin-page { padding: 0; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
 .sso-card { height: 100%; }
 .sso-header { display: flex; align-items: center; gap: 12px; }
 .sso-logo {

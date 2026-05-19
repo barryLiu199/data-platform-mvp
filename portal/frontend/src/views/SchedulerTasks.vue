@@ -2,6 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
+import { getLifecycleStatus } from '../constants/status'
+import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 import { getScheduledWorkflows, scheduleWorkflowOnline, scheduleWorkflowOffline } from '../api'
 
 interface ScheduledItem {
@@ -19,11 +22,8 @@ const items = ref<ScheduledItem[]>([])
 const loading = ref(false)
 const switchLoading = ref<Record<number, boolean>>({})
 
-const WF_STATUS_MAP: Record<string, { text: string; color: string }> = {
-  draft:   { text: '草稿',  color: '#86909c' },
-  tested:  { text: '已测试', color: '#ff7d00' },
-  online:  { text: '已上线', color: '#00b42a' },
-  offline: { text: '已下线', color: '#f53f3f' },
+function getWfStatus(status: string) {
+  return getLifecycleStatus(status)
 }
 
 onMounted(() => loadData())
@@ -85,19 +85,15 @@ function formatNextFireTime(t: string | null): string {
 
 <template>
   <div class="tasks-page">
-    <div class="tasks-header">
-      <div>
-        <h2 class="tasks-title">调度任务</h2>
-        <p class="tasks-desc">管理所有配置了定时调度的工作流</p>
-      </div>
-      <a-button @click="loadData" :loading="loading" size="small">刷新</a-button>
-    </div>
+    <PageHeader title="调度任务" description="管理所有配置了定时调度的工作流">
+      <template #actions>
+        <a-button @click="loadData" :loading="loading" size="small">刷新</a-button>
+      </template>
+    </PageHeader>
 
-    <div class="tasks-table-wrap">
+    <div class="glass-card tasks-table-wrap">
       <div v-if="loading && !items.length" class="tasks-empty"><a-spin /></div>
-      <div v-else-if="!items.length" class="tasks-empty">
-        <a-empty description="暂无调度任务，请在工作流编辑器中配置 CRON 表达式" />
-      </div>
+      <EmptyState v-else-if="!items.length" description="暂无调度任务，请在工作流编辑器中配置 CRON 表达式" />
       <table v-else class="tasks-table">
         <thead>
           <tr>
@@ -119,10 +115,10 @@ function formatNextFireTime(t: string | null): string {
             <td>
               <span
                 class="wf-status"
-                :style="{ color: WF_STATUS_MAP[item.status]?.color || '#86909c' }"
+                :style="{ color: getWfStatus(item.status).color }"
               >
-                <span class="wf-status__dot" :style="{ background: WF_STATUS_MAP[item.status]?.color || '#86909c' }"></span>
-                {{ WF_STATUS_MAP[item.status]?.text || item.status }}
+                <span class="wf-status__dot" :style="{ background: getWfStatus(item.status).color }"></span>
+                {{ getWfStatus(item.status).label }}
               </span>
             </td>
             <td>
@@ -146,25 +142,22 @@ function formatNextFireTime(t: string | null): string {
 </template>
 
 <style scoped>
-.tasks-page { padding: 20px; }
-.tasks-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
-.tasks-title { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
-.tasks-desc { margin: 0; color: #86909c; font-size: 13px; }
+.tasks-page { padding: var(--space-5); }
 
-.tasks-table-wrap { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; overflow: hidden; }
+.tasks-table-wrap { overflow: hidden; }
 .tasks-empty { display: flex; align-items: center; justify-content: center; height: 200px; }
 
-.tasks-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tasks-table thead tr { background: #f7f8fa; }
-.tasks-table th { padding: 10px 16px; text-align: left; font-weight: 500; color: #4e5969; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
-.tasks-table td { padding: 12px 16px; border-bottom: 1px solid #f2f3f5; vertical-align: middle; }
+.tasks-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
+.tasks-table thead tr { background: var(--color-bg-elevated); }
+.tasks-table th { padding: 10px var(--space-4); text-align: left; font-weight: 500; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.tasks-table td { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border-subtle); vertical-align: middle; }
 .task-row:last-child td { border-bottom: none; }
-.task-row:hover { background: #f7f8fa; }
+.task-row:hover { background: var(--color-bg-elevated); }
 
 .name-cell { font-weight: 500; }
-.cron-code { font-size: 12px; background: #f2f3f5; padding: 3px 8px; border-radius: 4px; font-family: 'JetBrains Mono', Consolas, monospace; color: #1d2129; }
-.next-time-cell { color: #4e5969; font-size: 13px; }
+.cron-code { font-size: var(--font-size-xs); background: var(--color-bg-elevated); padding: 3px 8px; border-radius: var(--radius-sm); font-family: var(--font-family-mono); color: var(--color-text-primary); }
+.next-time-cell { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
 
-.wf-status { display: flex; align-items: center; gap: 5px; font-size: 13px; }
+.wf-status { display: flex; align-items: center; gap: 5px; font-size: var(--font-size-sm); }
 .wf-status__dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 </style>

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
+import { getExecutionStatus } from '../constants/status'
 import { getDSInstances, getDSInstanceTasks, getDSTaskLog, rerunDSInstance } from '../api'
 
 interface Instance {
@@ -38,12 +39,8 @@ const STATUS_TABS = [
   { label: '停止', value: 'STOP' },
 ]
 
-const STATE_MAP: Record<string, { text: string; color: string; bg: string }> = {
-  SUCCESS:           { text: '成功',   color: '#00b42a', bg: '#e8ffea' },
-  FAILURE:           { text: '失败',   color: '#f53f3f', bg: '#ffece8' },
-  RUNNING_EXECUTION: { text: '运行中', color: '#165dff', bg: '#e8f3ff' },
-  STOP:              { text: '停止',   color: '#86909c', bg: '#f2f3f5' },
-  KILL:              { text: '已终止', color: '#ff7d00', bg: '#fff7e8' },
+function stateInfo(state: string) {
+  return getExecutionStatus(state)
 }
 
 // KPI 计算
@@ -171,10 +168,6 @@ function formatDuration(s: number): string {
   if (m < 60) return `${m}m${s % 60}s`
   return `${Math.floor(m / 60)}h${m % 60}m`
 }
-
-function stateInfo(state: string) {
-  return STATE_MAP[state] || { text: state, color: '#86909c', bg: '#f2f3f5' }
-}
 </script>
 
 <template>
@@ -234,7 +227,7 @@ function stateInfo(state: string) {
             <span class="inst-state-badge"
               :style="{ color: stateInfo(inst.state).color, background: stateInfo(inst.state).bg }">
               <span v-if="inst.state === 'RUNNING_EXECUTION'" class="pulse-dot-sm"></span>
-              {{ stateInfo(inst.state).text }}
+              {{ stateInfo(inst.state).label }}
             </span>
             <span class="inst-time">{{ inst.startTime }}</span>
             <span class="inst-duration">{{ inst.duration }}</span>
@@ -257,7 +250,7 @@ function stateInfo(state: string) {
                 <div class="tl-content">
                   <span class="tl-name">{{ task.name }}</span>
                   <span class="tl-state" :style="{ color: stateInfo(task.state).color }">
-                    {{ stateInfo(task.state).text }}
+                    {{ stateInfo(task.state).label }}
                   </span>
                   <span class="tl-duration">{{ task.duration }}</span>
                   <a-button type="text" size="mini" @click="viewLog(task.id)" class="tl-log-btn">日志</a-button>
@@ -279,61 +272,61 @@ function stateInfo(state: string) {
 </template>
 
 <style scoped>
-.ops-page { padding: 20px; display: flex; flex-direction: column; gap: 16px; height: calc(100vh - 60px); overflow: hidden; }
+.ops-page { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); height: calc(100vh - 60px); overflow: hidden; }
 
-.kpi-row { display: flex; gap: 12px; flex-shrink: 0; }
-.kpi-card { flex: 1; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; }
-.kpi-card--success { border-left: 3px solid #00b42a; }
-.kpi-card--running { border-left: 3px solid #165dff; }
-.kpi-card--fail    { border-left: 3px solid #f53f3f; }
-.kpi-value { font-size: 28px; font-weight: 700; color: #1d2129; display: flex; align-items: center; gap: 8px; }
-.kpi-label { font-size: 12px; color: #86909c; }
+.kpi-row { display: flex; gap: var(--space-3); flex-shrink: 0; }
+.kpi-card { flex: 1; background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-1); }
+.kpi-card--success { border-left: 3px solid var(--color-success); }
+.kpi-card--running { border-left: 3px solid var(--color-primary); }
+.kpi-card--fail    { border-left: 3px solid var(--color-danger); }
+.kpi-value { font-size: 28px; font-weight: 700; color: var(--color-text-primary); display: flex; align-items: center; gap: var(--space-2); }
+.kpi-label { font-size: var(--font-size-xs); color: var(--color-text-tertiary); }
 
 .filter-bar { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-.status-tabs { display: flex; gap: 4px; }
-.status-tab { padding: 5px 14px; font-size: 13px; cursor: pointer; border-radius: 4px; color: #4e5969; transition: all 0.15s; }
-.status-tab:hover { background: #f0f5ff; color: #165dff; }
-.status-tab.active { background: #165dff; color: #fff; }
-.filter-right { display: flex; align-items: center; gap: 8px; }
-.last-updated { font-size: 12px; color: #86909c; }
+.status-tabs { display: flex; gap: var(--space-1); }
+.status-tab { padding: 5px 14px; font-size: var(--font-size-sm); cursor: pointer; border-radius: var(--radius-sm); color: var(--color-text-secondary); transition: all 0.15s; }
+.status-tab:hover { background: var(--color-primary-light); color: var(--color-primary); }
+.status-tab.active { background: var(--color-primary); color: var(--color-text-inverse); }
+.filter-right { display: flex; align-items: center; gap: var(--space-2); }
+.last-updated { font-size: var(--font-size-xs); color: var(--color-text-tertiary); }
 
-.instance-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.instance-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-2); }
 .list-empty { display: flex; align-items: center; justify-content: center; height: 200px; }
 
-.instance-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
-.inst-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; transition: background 0.15s; }
-.inst-header:hover { background: #f7f8fa; }
-.inst-expand { font-size: 10px; color: #86909c; transition: transform 0.2s; flex-shrink: 0; }
+.instance-card { background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
+.inst-header { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); cursor: pointer; transition: background 0.15s; }
+.inst-header:hover { background: var(--color-bg-elevated); }
+.inst-expand { font-size: 10px; color: var(--color-text-tertiary); transition: transform 0.2s; flex-shrink: 0; }
 .inst-expand.expanded { transform: rotate(90deg); }
-.inst-name { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.inst-name:hover { color: #165dff; text-decoration: underline; }
-.inst-state-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; flex-shrink: 0; }
-.inst-time { font-size: 12px; color: #86909c; flex-shrink: 0; }
-.inst-duration { font-size: 12px; color: #86909c; min-width: 50px; flex-shrink: 0; }
+.inst-name { font-weight: 600; font-size: var(--font-size-base); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.inst-name:hover { color: var(--color-primary); text-decoration: underline; }
+.inst-state-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: var(--radius-full); font-size: var(--font-size-xs); font-weight: 500; flex-shrink: 0; }
+.inst-time { font-size: var(--font-size-xs); color: var(--color-text-tertiary); flex-shrink: 0; }
+.inst-duration { font-size: var(--font-size-xs); color: var(--color-text-tertiary); min-width: 50px; flex-shrink: 0; }
 .inst-rerun { flex-shrink: 0; }
 
-.timeline-wrap { padding: 8px 16px 12px 44px; border-top: 1px solid #f2f3f5; background: #fafbfc; }
-.timeline-loading { color: #86909c; font-size: 13px; display: flex; align-items: center; gap: 8px; padding: 8px 0; }
-.timeline-empty { color: #86909c; font-size: 13px; padding: 8px 0; }
+.timeline-wrap { padding: var(--space-2) var(--space-4) var(--space-3) 44px; border-top: 1px solid var(--color-border-subtle); background: var(--color-bg-elevated); }
+.timeline-loading { color: var(--color-text-tertiary); font-size: var(--font-size-sm); display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; }
+.timeline-empty { color: var(--color-text-tertiary); font-size: var(--font-size-sm); padding: var(--space-2) 0; }
 .timeline { display: flex; flex-direction: column; }
-.tl-item { display: flex; gap: 12px; }
+.tl-item { display: flex; gap: var(--space-3); }
 .tl-line-wrap { display: flex; flex-direction: column; align-items: center; width: 16px; flex-shrink: 0; }
 .tl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
 .tl-dot--pulse { animation: pulse-ring 1.5s ease-out infinite; }
-.tl-line { flex: 1; width: 2px; background: #e5e7eb; min-height: 12px; margin: 2px 0; }
-.tl-content { display: flex; align-items: center; gap: 12px; padding: 2px 0 10px; flex: 1; }
-.tl-name { font-size: 13px; font-weight: 500; flex: 1; }
-.tl-state { font-size: 12px; font-weight: 500; flex-shrink: 0; }
-.tl-duration { font-size: 12px; color: #86909c; min-width: 40px; flex-shrink: 0; }
+.tl-line { flex: 1; width: 2px; background: var(--color-border); min-height: 12px; margin: 2px 0; }
+.tl-content { display: flex; align-items: center; gap: var(--space-3); padding: 2px 0 10px; flex: 1; }
+.tl-name { font-size: var(--font-size-sm); font-weight: 500; flex: 1; }
+.tl-state { font-size: var(--font-size-xs); font-weight: 500; flex-shrink: 0; }
+.tl-duration { font-size: var(--font-size-xs); color: var(--color-text-tertiary); min-width: 40px; flex-shrink: 0; }
 .tl-log-btn { flex-shrink: 0; }
 
-.pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #165dff; flex-shrink: 0; animation: pulse-ring 1.5s ease-out infinite; }
+.pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); flex-shrink: 0; animation: pulse-ring 1.5s ease-out infinite; }
 .pulse-dot-sm { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; animation: pulse-ring 1.5s ease-out infinite; }
 @keyframes pulse-ring {
-  0%   { box-shadow: 0 0 0 0 rgba(22, 93, 255, 0.4); }
-  70%  { box-shadow: 0 0 0 6px rgba(22, 93, 255, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(22, 93, 255, 0); }
+  0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  70%  { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 
-.log-pre { margin: 0; font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; background: #1a1a2e; color: #e2e8f0; padding: 16px; border-radius: 6px; max-height: 500px; overflow-y: auto; font-family: 'JetBrains Mono', Consolas, monospace; }
+.log-pre { margin: 0; font-size: var(--font-size-xs); line-height: 1.7; white-space: pre-wrap; word-break: break-all; background: #1a1a2e; color: #e2e8f0; padding: var(--space-4); border-radius: var(--radius-md); max-height: 500px; overflow-y: auto; font-family: var(--font-family-mono); }
 </style>

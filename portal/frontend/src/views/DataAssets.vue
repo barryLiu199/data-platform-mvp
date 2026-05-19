@@ -1,18 +1,16 @@
 <template>
   <div class="page">
-    <div class="glass-card page-header">
-      <div>
-        <h3 class="page-title">数据资产</h3>
-        <p class="page-desc">数据源库表元数据浏览 (Portal-native, 直连数据源)</p>
-      </div>
-      <a-space>
-        <a-select v-model="dsId" :options="dsOptions" placeholder="选择数据源" style="width: 260px;" allow-clear @change="onDsChange" />
-        <a-button @click="loadTables" :loading="tablesLoading">
-          <template #icon><icon-refresh /></template>
-          刷新
-        </a-button>
-      </a-space>
-    </div>
+    <PageHeader title="数据资产" description="数据源库表元数据浏览 (Portal-native, 直连数据源)">
+      <template #actions>
+        <a-space>
+          <a-select v-model="dsId" :options="dsOptions" placeholder="选择数据源" style="width: 260px;" allow-clear @change="onDsChange" />
+          <a-button @click="loadTables" :loading="tablesLoading">
+            <template #icon><icon-refresh /></template>
+            刷新
+          </a-button>
+        </a-space>
+      </template>
+    </PageHeader>
 
     <div v-if="!dsId" class="glass-card empty-card">
       <div class="empty-msg">请先在上方选择一个数据源</div>
@@ -174,6 +172,7 @@ import { ref, computed, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { IconRefresh, IconSearch, IconStorage } from '@arco-design/web-vue/es/icon'
 import { getDatasources, getMetadataTables, getMetadataColumns, getMetadataPreview } from '../api'
+import PageHeader from '../components/PageHeader.vue'
 
 const dsOptions = ref<{ label: string; value: number }[]>([])
 const dsId = ref<number | undefined>(undefined)
@@ -301,45 +300,42 @@ onMounted(loadDatasources)
 <style scoped>
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.page-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
-.page-desc { margin: 4px 0 0; font-size: 13px; color: #86909C; }
 
 .empty-card { padding: 60px 24px; text-align: center; }
-.empty-msg { color: #86909C; font-size: 14px; }
+.empty-msg { color: var(--color-text-tertiary); font-size: 14px; }
 
 .metadata-layout { display: grid; grid-template-columns: 360px 1fr; gap: 16px; }
 
 .table-list-card { padding: 0; display: flex; flex-direction: column; max-height: calc(100vh - 200px); }
-.list-header { padding: 14px 16px; border-bottom: 1px solid #F2F3F5; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.list-title { font-size: 14px; font-weight: 600; color: #1D2129; }
-.list-count { color: #86909C; font-weight: 400; font-size: 12px; }
+.list-header { padding: 14px 16px; border-bottom: 1px solid var(--color-border-subtle); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.list-title { font-size: 14px; font-weight: var(--font-weight-semibold); color: var(--color-text-primary); }
+.list-count { color: var(--color-text-tertiary); font-weight: 400; font-size: 12px; }
 .table-list { flex: 1; overflow-y: auto; }
-.table-item { padding: 10px 16px; border-bottom: 1px solid #F7F8FA; cursor: pointer; transition: background 0.15s; }
-.table-item:hover { background: #F7F8FA; }
-.table-item.active { background: #EFF4FF; border-left: 3px solid #2B5AED; padding-left: 13px; }
-.table-item-name { font-size: 13px; font-weight: 500; color: #1D2129; margin-bottom: 4px; }
-.table-item-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #86909C; }
+.table-item { padding: 10px 16px; border-bottom: 1px solid var(--color-bg-elevated); cursor: pointer; transition: background 0.15s; }
+.table-item:hover { background: var(--color-bg-elevated); }
+.table-item.active { background: var(--color-primary-light); border-left: 3px solid var(--color-primary); padding-left: 13px; }
+.table-item-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px; }
+.table-item-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--color-text-tertiary); }
 .table-item-meta .comment { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
 
 .table-detail-card { padding: 0; min-height: 400px; max-height: calc(100vh - 200px); display: flex; flex-direction: column; overflow: hidden; }
 .detail-body { flex: 1; overflow-y: auto; }
-.placeholder { text-align: center; padding: 60px 0; color: #86909C; }
+.placeholder { text-align: center; padding: 60px 0; color: var(--color-text-tertiary); }
 .placeholder p { margin-top: 8px; font-size: 13px; }
-.detail-header { padding: 16px 20px 0; border-bottom: 1px solid #F2F3F5; }
-.detail-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #1D2129; font-family: 'JetBrains Mono', monospace; }
-.col-name { font-family: 'JetBrains Mono', monospace; color: #1D2129; }
+.detail-header { padding: 16px 20px 0; border-bottom: 1px solid var(--color-border-subtle); }
+.detail-title { margin: 0 0 8px; font-size: 16px; font-weight: var(--font-weight-semibold); color: var(--color-text-primary); font-family: var(--font-family-mono); }
+.col-name { font-family: var(--font-family-mono); color: var(--color-text-primary); }
 
 .preview-toolbar { padding: 14px 20px 8px; display: flex; align-items: center; gap: 12px; }
-.preview-hint { color: #86909C; font-size: 12px; }
+.preview-hint { color: var(--color-text-tertiary); font-size: 12px; }
 .preview-wrapper { overflow-x: auto; padding: 0 20px 20px; }
 .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.preview-table th { padding: 8px 12px; text-align: left; background: #F7F8FA; border-bottom: 1px solid #E5E6EB; font-weight: 600; color: #4E5969; white-space: nowrap; }
-.preview-table td { padding: 8px 12px; border-bottom: 1px solid #F2F3F5; color: #1D2129; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
-.preview-table tr:hover td { background: #F7F8FA; }
+.preview-table th { padding: 8px 12px; text-align: left; background: var(--color-bg-elevated); border-bottom: 1px solid var(--color-border); font-weight: var(--font-weight-semibold); color: var(--color-text-secondary); white-space: nowrap; }
+.preview-table td { padding: 8px 12px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-primary); white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.preview-table tr:hover td { background: var(--color-bg-elevated); }
 
-.loading-state, .empty-state { padding: 40px 0; text-align: center; color: #86909C; }
-.mono { font-family: 'JetBrains Mono', 'Menlo', monospace; }
+.loading-state, .empty-state { padding: 40px 0; text-align: center; color: var(--color-text-tertiary); }
+.mono { font-family: var(--font-family-mono); }
 
 /* 字段角标 */
 .field-badges { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: text-bottom; flex-wrap: nowrap; }
@@ -366,12 +362,12 @@ onMounted(loadDatasources)
 .preview-badges { margin-left: 2px; gap: 1px; }
 .preview-badges .mini-badge { font-size: 9px; padding: 1px 4px; height: 14px; line-height: 14px; }
 
-.muted { color: #C9CDD4; font-size: 12px; }
+.muted { color: var(--color-text-disabled); font-size: 12px; }
 
 /* badge popover 极简卡片 */
 :global(.badge-popover .arco-popover-popup-content) {
-  background: #fff !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+  background: var(--color-bg-surface) !important;
+  box-shadow: var(--shadow-lg) !important;
   border-radius: 6px !important;
   padding: 0 !important;
   border: none !important;
@@ -394,6 +390,6 @@ onMounted(loadDatasources)
 .popover-tag.badge-fk { background: #FFF0F6; color: #C41D7F; }
 .popover-tag.badge-uq { background: #E8FFEA; color: #389E0D; }
 .popover-tag.badge-auto { background: #E6F4FF; color: #0958D9; }
-.popover-tag.badge-nn { background: #F5F5F5; color: #4E5969; }
-.popover-tag.badge-idx { background: #F5F5F5; color: #86909C; }
-</style>
+.popover-tag.badge-nn { background: #F5F5F5; color: var(--color-text-secondary); }
+.popover-tag.badge-idx { background: #F5F5F5; color: var(--color-text-tertiary); }
+:deep(.arco-table-th) { background: var(--color-bg-elevated) !important; }</style>

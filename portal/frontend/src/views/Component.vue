@@ -1,40 +1,32 @@
 <template>
   <div class="page">
-    <div class="glass-card page-header">
-      <div>
-        <h3 class="page-title">组件管理</h3>
-        <p class="page-desc">SQL / Python / Shell / DataX 统一组件,经 DSL Translator 翻译为底层任务</p>
-      </div>
-      <a-space>
-        <a-input-search
-          v-model="searchVal"
-          placeholder="搜索组件名"
-          style="width: 200px;"
-          @search="loadData"
-          allow-clear
-          @clear="loadData"
-        />
-        <a-select v-model="typeFilter" placeholder="全部类型" style="width: 130px;" allow-clear @change="loadData">
-          <a-option value="sql">SQL</a-option>
-          <a-option value="python">Python</a-option>
-          <a-option value="shell">Shell</a-option>
-          <a-option value="datax">DataX</a-option>
-        </a-select>
-        <a-button type="primary" @click="openCreate">
-          <template #icon><icon-plus /></template>
-          新建组件
-        </a-button>
-      </a-space>
-    </div>
+    <PageHeader title="组件管理" description="SQL / Python / Shell / DataX 统一组件,经 DSL Translator 翻译为底层任务">
+      <template #actions>
+        <a-space>
+          <a-input-search
+            v-model="searchVal"
+            placeholder="搜索组件名"
+            style="width: 200px;"
+            @search="loadData"
+            allow-clear
+            @clear="loadData"
+          />
+          <a-select v-model="typeFilter" placeholder="全部类型" style="width: 130px;" allow-clear @change="loadData">
+            <a-option value="sql">SQL</a-option>
+            <a-option value="python">Python</a-option>
+            <a-option value="shell">Shell</a-option>
+            <a-option value="datax">DataX</a-option>
+          </a-select>
+          <a-button type="primary" @click="openCreate">
+            <template #icon><icon-plus /></template>
+            新建组件
+          </a-button>
+        </a-space>
+      </template>
+    </PageHeader>
 
     <!-- 状态筛选 -->
-    <div class="filter-tabs">
-      <div class="tab-item" :class="{ active: statusFilter === '' }" @click="setStatus('')">全部 {{ total }}</div>
-      <div class="tab-item" :class="{ active: statusFilter === 'draft' }" @click="setStatus('draft')">草稿</div>
-      <div class="tab-item" :class="{ active: statusFilter === 'tested' }" @click="setStatus('tested')">已测试</div>
-      <div class="tab-item online" :class="{ active: statusFilter === 'online' }" @click="setStatus('online')">已上线</div>
-      <div class="tab-item" :class="{ active: statusFilter === 'offline' }" @click="setStatus('offline')">已下线</div>
-    </div>
+    <FilterTabs v-model="statusFilter" :tabs="statusTabs" @update:model-value="setStatus" />
 
     <!-- 表格 -->
     <div class="glass-card table-card">
@@ -53,7 +45,7 @@
           </a-table-column>
           <a-table-column title="状态" :width="100">
             <template #cell="{ record }">
-              <a-tag :color="statusColor(record.status)" size="small">{{ statusLabel(record.status) }}</a-tag>
+              <StatusTag :status="record.status" type="lifecycle" />
             </template>
           </a-table-column>
           <a-table-column title="描述" data-index="description" :width="180" :ellipsis="true" :tooltip="true" />
@@ -82,10 +74,9 @@
           </a-table-column>
         </template>
         <template #empty>
-          <div class="empty-state">
-            <p>暂无组件</p>
+          <EmptyState description="暂无组件">
             <p class="text-muted">点击「新建组件」创建第一个 SQL / Python / Shell / DataX 组件</p>
-          </div>
+          </EmptyState>
         </template>
       </a-table>
       <div class="pagination-wrap" v-if="total > pageSize">
@@ -157,7 +148,13 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { IconPlus } from '@arco-design/web-vue/es/icon'
+import PageHeader from '../components/PageHeader.vue'
+import FilterTabs from '../components/FilterTabs.vue'
+import StatusTag from '../components/StatusTag.vue'
+import EmptyState from '../components/EmptyState.vue'
 import CodeEditor from '../components/CodeEditor.vue'
+import { getLifecycleStatus } from '../constants/status'
+import type { FilterTab } from '../components/FilterTabs.vue'
 import {
   getComponents, createComponent, updateComponent, deleteComponent,
   testComponent, publishComponent, offlineComponent, runComponent,
@@ -230,17 +227,21 @@ const codeLabel = computed(() => {
 })
 
 // ===== 工具函数 =====
+const statusTabs = computed<FilterTab[]>(() => [
+  { label: '全部', value: '', count: total.value },
+  { label: '草稿', value: 'draft' },
+  { label: '已测试', value: 'tested' },
+  { label: '已上线', value: 'online' },
+  { label: '已下线', value: 'offline' },
+])
 function typeColor(t: string) {
   return { sql: 'blue', python: 'green', shell: 'orange', datax: 'purple' }[t] || 'gray'
 }
 function typeLabel(t: string) {
   return { sql: 'SQL', python: 'Python', shell: 'Shell', datax: 'DataX' }[t] || t
 }
-function statusColor(s: string) {
-  return { draft: 'gray', tested: 'cyan', online: 'green', offline: 'orange' }[s] || 'gray'
-}
 function statusLabel(s: string) {
-  return { draft: '草稿', tested: '已测试', online: '已上线', offline: '已下线' }[s] || s
+  return getLifecycleStatus(s).label
 }
 function formatTime(t?: string) {
   if (!t) return '—'
@@ -469,35 +470,19 @@ onMounted(() => {
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-.page-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
-.page-desc { margin: 4px 0 0; font-size: 13px; color: #86909C; }
-
-.filter-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
-.tab-item {
-  padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer;
-  color: #4E5969; background: #F7F8FA; transition: all 0.15s;
-}
-.tab-item:hover { background: #EFF4FF; color: #2B5AED; }
-.tab-item.active { background: #2B5AED; color: #FFFFFF; }
-.tab-item.online.active { background: #00B42A; }
-
 .table-card { padding: 0; overflow: hidden; }
 
-.comp-name { font-weight: 500; color: #1D2129; }
+.comp-name { font-weight: 500; color: var(--color-text-primary); }
 .comp-version {
-  margin-left: 8px;
+  margin-left: var(--space-2);
   font-size: 11px;
-  color: #86909C;
-  font-family: 'JetBrains Mono', monospace;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
 }
 
-.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.text-muted { color: #86909C; }
+.mono { font-family: var(--font-family-mono); font-size: var(--font-size-xs); }
+.text-muted { color: var(--color-text-tertiary); }
 .cell-ellipsis { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.empty-state { padding: 40px 0; text-align: center; }
 
-.pagination-wrap { padding: 16px 24px; display: flex; justify-content: flex-end; border-top: 1px solid #F2F3F5; }
-
-:deep(.arco-table-th) { background: #FAFBFC !important; }
+.pagination-wrap { padding: var(--space-4) var(--space-6); display: flex; justify-content: flex-end; border-top: 1px solid var(--color-border-subtle); }
 </style>

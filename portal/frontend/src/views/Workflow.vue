@@ -1,34 +1,26 @@
 <template>
   <div class="page">
-    <div class="glass-card page-header">
-      <div>
-        <h3 class="page-title">工作流开发</h3>
-        <p class="page-desc">DAG 工作流 — 组合多个组件形成可调度的有向无环图</p>
-      </div>
-      <a-space>
-        <a-input-search
-          v-model="searchVal"
-          placeholder="搜索工作流名"
-          style="width: 200px;"
-          @search="loadData"
-          allow-clear
-          @clear="loadData"
-        />
-        <a-button type="primary" @click="openCreate">
-          <template #icon><icon-plus /></template>
-          新建工作流
-        </a-button>
-      </a-space>
-    </div>
+    <PageHeader title="工作流开发" description="DAG 工作流 — 组合多个组件形成可调度的有向无环图">
+      <template #actions>
+        <a-space>
+          <a-input-search
+            v-model="searchVal"
+            placeholder="搜索工作流名"
+            style="width: 200px;"
+            @search="loadData"
+            allow-clear
+            @clear="loadData"
+          />
+          <a-button type="primary" @click="openCreate">
+            <template #icon><icon-plus /></template>
+            新建工作流
+          </a-button>
+        </a-space>
+      </template>
+    </PageHeader>
 
     <!-- 状态筛选 -->
-    <div class="filter-tabs">
-      <div class="tab-item" :class="{ active: statusFilter === '' }" @click="setStatus('')">全部 {{ total }}</div>
-      <div class="tab-item" :class="{ active: statusFilter === 'draft' }" @click="setStatus('draft')">草稿</div>
-      <div class="tab-item" :class="{ active: statusFilter === 'tested' }" @click="setStatus('tested')">已测试</div>
-      <div class="tab-item online" :class="{ active: statusFilter === 'online' }" @click="setStatus('online')">已上线</div>
-      <div class="tab-item" :class="{ active: statusFilter === 'offline' }" @click="setStatus('offline')">已下线</div>
-    </div>
+    <FilterTabs v-model="statusFilter" :tabs="statusTabs" @update:model-value="setStatus" />
 
     <!-- 标签筛选 -->
     <div v-if="allTags.length" class="tag-filter-bar">
@@ -57,7 +49,7 @@
           <a-table-column title="状态" :width="100">
             <template #cell="{ record }">
               <span class="combined-status">
-                <a-tag :color="statusColor(record.status)" size="small">{{ statusLabel(record.status) }}</a-tag>
+                <StatusTag :status="record.status" type="lifecycle" />
                 <span v-if="record.status === 'online' && record.schedule_status === 'ONLINE'" class="schedule-dot active" title="调度中"></span>
                 <span v-else-if="record.status === 'online'" class="schedule-dot" title="调度停"></span>
               </span>
@@ -111,10 +103,9 @@
           </a-table-column>
         </template>
         <template #empty>
-          <div class="empty-state">
-            <p>暂无工作流</p>
+          <EmptyState description="暂无工作流">
             <p class="text-muted">点击「新建工作流」串联已发布的组件成一条流水线</p>
-          </div>
+          </EmptyState>
         </template>
       </a-table>
       <div class="pagination-wrap" v-if="total > pageSize">
@@ -125,10 +116,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
 import { IconPlus } from '@arco-design/web-vue/es/icon'
+import PageHeader from '../components/PageHeader.vue'
+import FilterTabs from '../components/FilterTabs.vue'
+import StatusTag from '../components/StatusTag.vue'
+import EmptyState from '../components/EmptyState.vue'
+import { getLifecycleStatus, getRunSymbol } from '../constants/status'
+import type { FilterTab } from '../components/FilterTabs.vue'
 import {
   getWorkflows, deleteWorkflow,
   testWorkflow, publishWorkflow, offlineWorkflow, runWorkflow,
@@ -165,21 +162,22 @@ const tagFilter = ref('')
 const allTags = ref<string[]>([])
 
 // ===== 工具函数 =====
+const statusTabs = computed<FilterTab[]>(() => [
+  { label: '全部', value: '', count: total.value },
+  { label: '草稿', value: 'draft' },
+  { label: '已测试', value: 'tested' },
+  { label: '已上线', value: 'online' },
+  { label: '已下线', value: 'offline' },
+])
 function priorityLabel(p?: number) {
   return ({ 1: 'P1', 2: 'P2', 3: 'P3' } as any)[p || 3] || 'P3'
 }
-function statusColor(s: string) {
-  return ({ draft: 'gray', tested: 'cyan', online: 'green', offline: 'orange' } as any)[s] || 'gray'
-}
 function statusLabel(s?: string) {
   if (!s) return '未知'
-  return ({ draft: '草稿', tested: '已测试', online: '已上线', offline: '已下线' } as any)[s] || s
+  return getLifecycleStatus(s).label
 }
 function runSymbol(s?: string) {
-  if (!s) return ''
-  if (s === 'SUCCESS') return '✓'
-  if (s === 'FAILURE') return '✗'
-  return '●'
+  return s ? getRunSymbol(s) : ''
 }
 function runClass(s?: string) {
   if (s === 'SUCCESS') return 'success'
@@ -299,59 +297,45 @@ onMounted(() => { loadData() })
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-.page-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
-.page-desc { margin: 4px 0 0; font-size: 13px; color: #86909C; }
-
-.filter-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
-.tab-item {
-  padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer;
-  color: #4E5969; background: #F7F8FA; transition: all 0.15s;
-}
-.tab-item:hover { background: #EFF4FF; color: #2B5AED; }
-.tab-item.active { background: #2B5AED; color: #FFFFFF; }
-.tab-item.online.active { background: #00B42A; }
-.tag-filter-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
-.tag-filter-label { font-size: 12px; color: #86909c; }
-.tag-chip { padding: 3px 10px; border-radius: 10px; font-size: 12px; cursor: pointer; background: #f2f3f5; color: #4e5969; transition: all 0.15s; }
-.tag-chip:hover { background: #e8f3ff; color: #165dff; }
-.tag-chip.active { background: #165dff; color: #fff; }
+.tag-filter-bar { display: flex; align-items: center; gap: 6px; margin-bottom: var(--space-4); flex-wrap: wrap; }
+.tag-filter-label { font-size: var(--font-size-xs); color: var(--color-text-tertiary); }
+.tag-chip { padding: 3px 10px; border-radius: 10px; font-size: var(--font-size-xs); cursor: pointer; background: var(--color-bg-elevated); color: var(--color-text-secondary); transition: all 0.15s; }
+.tag-chip:hover { background: var(--color-primary-light); color: var(--color-primary); }
+.tag-chip.active { background: var(--color-primary); color: var(--color-text-inverse); }
 
 .table-card { padding: 0; overflow: auto; }
-.wf-name-link { font-weight: 500; color: #165dff; cursor: pointer; }
+.wf-name-link { font-weight: 500; color: var(--color-primary); cursor: pointer; }
 .wf-name-link:hover { text-decoration: underline; }
 .wf-version {
-  margin-left: 6px; font-size: 11px; color: #86909C;
-  font-family: 'JetBrains Mono', monospace;
+  margin-left: 6px; font-size: 11px; color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
 }
 
 /* 优先级 */
 .priority-badge {
   display: inline-block; padding: 1px 6px; border-radius: 3px;
-  font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-weight: 600; font-family: var(--font-family-mono);
 }
-.priority-badge.p1 { background: #FFECE8; color: #F53F3F; }
-.priority-badge.p2 { background: #FFF7E8; color: #FF7D00; }
-.priority-badge.p3 { background: #F2F3F5; color: #86909C; }
+.priority-badge.p1 { background: var(--color-danger-light); color: var(--color-danger); }
+.priority-badge.p2 { background: var(--color-warning-light); color: var(--color-warning); }
+.priority-badge.p3 { background: var(--color-bg-elevated); color: var(--color-text-tertiary); }
 
 /* 状态 + 调度点 */
 .combined-status { display: inline-flex; align-items: center; gap: 4px; }
 .schedule-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: #C9CDD4;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--color-border-strong);
 }
-.schedule-dot.active { background: #00B42A; animation: pulse 2s infinite; }
+.schedule-dot.active { background: var(--color-success); animation: pulse 2s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 /* 运行状态 */
 .run-cell { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .run-icon { font-size: 13px; font-weight: 600; }
-.run-icon.success { color: #00B42A; }
-.run-icon.failure { color: #F53F3F; }
-.run-icon.running { color: #165DFF; }
+.run-icon.success { color: var(--color-success); }
+.run-icon.failure { color: var(--color-danger); }
+.run-icon.running { color: var(--color-primary); }
 
-.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.text-muted { color: #86909C; }
-.empty-state { padding: 40px 0; text-align: center; }
-.pagination-wrap { padding: 16px 24px; display: flex; justify-content: flex-end; border-top: 1px solid #F2F3F5; }
-:deep(.arco-table-th) { background: #FAFBFC !important; }
+.mono { font-family: var(--font-family-mono); font-size: var(--font-size-xs); }
+.text-muted { color: var(--color-text-tertiary); }
+.pagination-wrap { padding: var(--space-4) var(--space-6); display: flex; justify-content: flex-end; border-top: 1px solid var(--color-border-subtle); }
 </style>

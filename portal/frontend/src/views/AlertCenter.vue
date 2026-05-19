@@ -1,15 +1,13 @@
 <template>
   <div class="page">
-    <div class="glass-card page-header">
-      <div>
-        <h3 class="page-title">监控规则</h3>
-        <p class="page-desc">配置告警规则，工作流异常时自动通知到飞书或邮箱</p>
-      </div>
-      <a-button type="primary" @click="openCreate">
-        <template #icon><icon-plus /></template>
-        新建规则
-      </a-button>
-    </div>
+    <PageHeader title="监控规则" description="配置告警规则，工作流异常时自动通知到飞书或邮箱">
+      <template #actions>
+        <a-button type="primary" @click="openCreate">
+          <template #icon><icon-plus /></template>
+          新建规则
+        </a-button>
+      </template>
+    </PageHeader>
 
     <div class="glass-card table-card">
       <a-table :data="rules" :loading="loading" :bordered="false" :pagination="false" stripe>
@@ -50,10 +48,9 @@
           </a-table-column>
         </template>
         <template #empty>
-          <div class="empty-state">
-            <p>暂无监控规则</p>
+          <EmptyState description="暂无监控规则">
             <p class="text-muted">点击「新建规则」配置工作流异常告警</p>
-          </div>
+          </EmptyState>
         </template>
       </a-table>
     </div>
@@ -120,6 +117,8 @@
 import { ref, onMounted } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { IconPlus } from '@arco-design/web-vue/es/icon'
+import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 import {
   getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule,
   toggleAlertRule, testAlertNotify, getWorkflows,
@@ -257,16 +256,9 @@ onMounted(() => { loadData(); loadWorkflows() })
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-.page-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
-.page-desc { margin: 4px 0 0; font-size: 13px; color: #86909C; }
-
 .table-card { padding: 0; overflow: auto; }
-.text-muted { color: #86909C; }
-.empty-state { padding: 40px 0; text-align: center; }
+.text-muted { color: var(--color-text-tertiary); }
 
-.notify-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
-.notify-icon { font-size: 14px; }
-
-:deep(.arco-table-th) { background: #FAFBFC !important; }
+.notify-badge { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-sm); }
+.notify-icon { font-size: var(--font-size-base); }
 </style>

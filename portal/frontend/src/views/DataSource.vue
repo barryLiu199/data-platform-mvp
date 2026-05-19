@@ -1,16 +1,13 @@
 <template>
   <div class="page">
-    <!-- 页面头部 -->
-    <div class="glass-card page-header">
-      <div>
-        <h3 class="page-title">数据源管理</h3>
-        <p class="page-desc">管理 MySQL、PostgreSQL、SQLServer、Oracle、ClickHouse 等数据源连接</p>
-      </div>
-      <a-button type="primary" @click="showModal()">
-        <template #icon><icon-plus /></template>
-        新建数据源
-      </a-button>
-    </div>
+    <PageHeader title="数据源管理" description="管理 MySQL、PostgreSQL、SQLServer、Oracle、ClickHouse 等数据源连接">
+      <template #actions>
+        <a-button type="primary" @click="showModal()">
+          <template #icon><icon-plus /></template>
+          新建数据源
+        </a-button>
+      </template>
+    </PageHeader>
 
     <!-- 数据源列表 -->
     <div class="glass-card list-card">
@@ -101,6 +98,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { IconPlus } from '@arco-design/web-vue/es/icon'
+import PageHeader from '../components/PageHeader.vue'
 import { getDatasources, createDatasource, updateDatasource, deleteDatasource, testDatasource } from '../api'
 
 const loading = ref(false)
@@ -192,15 +190,11 @@ async function handleDelete(id: number) {
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-.page-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
-.page-desc { margin: 4px 0 0; font-size: 13px; color: #86909C; }
-
-.list-card { padding: 20px 24px; }
+.list-card { padding: var(--space-5) var(--space-6); }
 .list-toolbar { display: flex; justify-content: space-between; align-items: center; }
 
 .status-cell { display: flex; align-items: center; gap: 6px; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; }
-.status-dot.online { background: #00B42A; box-shadow: 0 0 6px rgba(0,180,42,0.3); }
-.status-dot.offline { background: #C9CDD4; }
+.status-dot.online { background: var(--color-success); box-shadow: 0 0 6px rgba(22,163,74,0.3); }
+.status-dot.offline { background: var(--color-border-strong); }
 </style>

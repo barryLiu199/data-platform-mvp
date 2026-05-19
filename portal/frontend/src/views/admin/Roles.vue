@@ -1,12 +1,13 @@
 <template>
   <div class="admin-page">
-    <div class="page-header">
-      <h2>角色管理</h2>
-      <a-button type="primary" @click="openCreate">
-        <template #icon><icon-plus /></template>
-        新建角色
-      </a-button>
-    </div>
+    <PageHeader title="角色管理">
+      <template #actions>
+        <a-button type="primary" @click="openCreate">
+          <template #icon><icon-plus /></template>
+          新建角色
+        </a-button>
+      </template>
+    </PageHeader>
 
     <a-row :gutter="16">
       <!-- 角色列表 -->
@@ -86,6 +87,7 @@ import { ref, computed, onMounted } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { IconPlus } from '@arco-design/web-vue/es/icon'
 import { adminListRoles, adminCreateRole, adminUpdateRole, adminDeleteRole, adminListPermissions } from '../../api'
+import PageHeader from '../../components/PageHeader.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -192,8 +194,6 @@ onMounted(() => {
 
 <style scoped>
 .admin-page { padding: 0; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
 .role-item { cursor: pointer; border-radius: 6px; padding: 8px 12px; transition: background 0.15s; }
 .role-item:hover { background: #F7F8FA; }
 .role-item.active { background: #EFF4FF; }

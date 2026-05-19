@@ -1,15 +1,13 @@
 <template>
   <div class="page">
-    <div class="glass-card page-header">
-      <div>
-        <h3 class="page-title">系统监控</h3>
-        <p class="page-desc">平台服务运行状态 · 实时探测</p>
-      </div>
-      <a-button @click="refreshAll" :loading="loading">
-        <template #icon><icon-refresh /></template>
-        刷新
-      </a-button>
-    </div>
+    <PageHeader title="系统监控" description="平台服务运行状态 · 实时探测">
+      <template #actions>
+        <a-button @click="refreshAll" :loading="loading">
+          <template #icon><icon-refresh /></template>
+          刷新
+        </a-button>
+      </template>
+    </PageHeader>
 
     <!-- 服务健康状态 -->
     <div class="glass-card services-section">
@@ -112,6 +110,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { IconRefresh } from '@arco-design/web-vue/es/icon'
 import { getDSMonitor, getSystemServices } from '../api'
 import api from '../api'
+import PageHeader from '../components/PageHeader.vue'
 
 const loading = ref(false)
 const services = ref<any[]>([])
@@ -136,9 +135,9 @@ const dsStatusItems = computed(() => [
 ])
 
 function metricColor(val: number) {
-  if (val < 60) return '#00B42A'
-  if (val < 80) return '#FF7D00'
-  return '#F53F3F'
+  if (val < 60) return 'var(--color-success)'
+  if (val < 80) return 'var(--color-warning)'
+  return 'var(--color-danger)'
 }
 
 function formatBytes(bytes: number) {
@@ -180,53 +179,50 @@ onMounted(() => { refreshAll() })
 <style scoped>
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.page-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
-.page-desc { margin: 4px 0 0; font-size: 13px; color: #86909C; }
-.section-title { margin: 0 0 16px; font-size: 15px; font-weight: 600; color: #1D2129; }
+.section-title { margin: 0 0 16px; font-size: 15px; font-weight: var(--font-weight-semibold); color: var(--color-text-primary); }
 
 .services-section { padding: 20px; margin-bottom: 16px; }
 .service-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .service-chip {
   display: flex; align-items: center; gap: 8px;
-  padding: 12px 16px; border-radius: 8px; border: 1px solid #E5E8ED;
-  background: #FAFBFC; min-width: 140px; transition: all 0.15s;
+  padding: 12px 16px; border-radius: var(--radius-lg); border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated); min-width: 140px; transition: all 0.15s;
 }
-.service-chip.online { border-color: #B7EB8F; background: #F6FFED; }
-.service-chip.offline { border-color: #FFA39E; background: #FFF1F0; }
+.service-chip.online { border-color: #B7EB8F; background: #F0FDF4; }
+.service-chip.offline { border-color: #FCA5A5; background: #FEF2F2; }
 .svc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.service-chip.online .svc-dot { background: #00B42A; box-shadow: 0 0 6px rgba(0,180,42,0.4); }
-.service-chip.offline .svc-dot { background: #F53F3F; box-shadow: 0 0 6px rgba(245,63,63,0.4); }
+.service-chip.online .svc-dot { background: var(--color-success); box-shadow: 0 0 6px rgba(22,163,74,0.4); }
+.service-chip.offline .svc-dot { background: var(--color-danger); box-shadow: 0 0 6px rgba(220,38,38,0.4); }
 .svc-info { display: flex; flex-direction: column; }
-.svc-name { font-size: 13px; font-weight: 500; color: #1D2129; }
-.svc-port { font-size: 11px; color: #86909C; font-family: 'JetBrains Mono', monospace; }
+.svc-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+.svc-port { font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-family-mono); }
 .service-summary { margin-top: 12px; font-size: 12px; display: flex; gap: 12px; }
-.summary-ok { color: #00B42A; }
-.summary-warn { color: #F53F3F; font-weight: 500; }
+.summary-ok { color: var(--color-success); }
+.summary-warn { color: var(--color-danger); font-weight: 500; }
 
 .ds-section { padding: 20px; margin-bottom: 16px; }
 .ds-content { display: flex; flex-direction: column; gap: 16px; }
 .ds-status-row { display: flex; gap: 24px; }
 .ds-status-item { display: flex; flex-direction: column; gap: 4px; }
-.ds-label { font-size: 11px; color: #86909C; }
+.ds-label { font-size: 11px; color: var(--color-text-tertiary); }
 .ds-value { font-size: 13px; font-weight: 600; }
-.ds-value.up { color: #00B42A; }
-.ds-value.down { color: #F53F3F; }
+.ds-value.up { color: var(--color-success); }
+.ds-value.down { color: var(--color-danger); }
 .ds-metrics { display: flex; flex-direction: column; gap: 12px; }
 .metric-item { display: flex; flex-direction: column; gap: 6px; }
 .metric-header { display: flex; justify-content: space-between; align-items: center; }
-.metric-label { font-size: 13px; color: #4E5969; }
+.metric-label { font-size: 13px; color: var(--color-text-secondary); }
 .metric-value { font-size: 14px; font-weight: 600; }
-.metric-sub { font-size: 11px; font-weight: 400; color: #86909C; margin-left: 4px; }
-.metric-bar { height: 6px; background: #F2F3F5; border-radius: 3px; overflow: hidden; }
+.metric-sub { font-size: 11px; font-weight: 400; color: var(--color-text-tertiary); margin-left: 4px; }
+.metric-bar { height: 6px; background: var(--color-bg-elevated); border-radius: 3px; overflow: hidden; }
 .metric-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-.ds-unavailable { display: flex; align-items: center; gap: 8px; color: #86909C; font-size: 13px; }
-.ds-unavailable .svc-dot { background: #F53F3F; }
+.ds-unavailable { display: flex; align-items: center; gap: 8px; color: var(--color-text-tertiary); font-size: 13px; }
+.ds-unavailable .svc-dot { background: var(--color-danger); }
 
 .info-section { padding: 20px; }
 .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 32px; }
-.info-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #F2F3F5; }
-.info-label { font-size: 13px; color: #86909C; }
-.info-value { font-size: 13px; color: #1D2129; font-weight: 500; }
-.mono { font-family: 'JetBrains Mono', monospace; }
+.info-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--color-border-subtle); }
+.info-label { font-size: 13px; color: var(--color-text-tertiary); }
+.info-value { font-size: 13px; color: var(--color-text-primary); font-weight: 500; }
+.mono { font-family: var(--font-family-mono); }
 </style>

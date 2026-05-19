@@ -1,173 +1,164 @@
+/* ============ Design Tokens ============ */
+@import './tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ============ 全局基础 — 科技蓝白风 ============ */
+/* ============ 全局基础 ============ */
 * { box-sizing: border-box; }
 
 html, body, #app {
   margin: 0;
   padding: 0;
-  background: #F5F7FA;
-  color: #1D2129;
-  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
 }
 
 /* ============ 滚动条 ============ */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #C9CDD4; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #A9AEB8; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }
 
-/* ============ Arco Design 浅色覆盖 ============ */
+/* ============ Arco Design 覆盖 ============ */
 
 /* 背景 */
 body .arco-layout,
-body .arco-layout-content { background: #F5F7FA !important; }
-body .arco-layout-sider { background: #FFFFFF !important; }
+body .arco-layout-content { background: var(--color-bg-base) !important; }
+body .arco-layout-sider { background: var(--color-bg-surface) !important; }
 
 /* 侧边栏 */
 body .arco-menu { background: transparent !important; border: none !important; }
 body .arco-menu-item,
-body .arco-menu-inline-header { color: #4E5969 !important; }
+body .arco-menu-inline-header { color: var(--color-text-secondary) !important; }
 body .arco-menu-item:hover,
-body .arco-menu-inline-header:hover { color: #2B5AED !important; background: #F2F3F5 !important; }
-body .arco-menu-item.arco-menu-selected { color: #2B5AED !important; background: #EFF4FF !important; }
-body .arco-menu-item.arco-menu-selected::before { background: #2B5AED !important; }
+body .arco-menu-inline-header:hover { color: var(--color-primary) !important; background: var(--color-bg-elevated) !important; }
+body .arco-menu-item.arco-menu-selected { color: var(--color-primary) !important; background: var(--color-primary-light) !important; }
+body .arco-menu-item.arco-menu-selected::before { background: var(--color-primary) !important; }
 
 /* 卡片 */
-body .arco-card { background: #FFFFFF !important; border: 1px solid #E5E8ED !important; border-radius: 10px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04) !important; }
-body .arco-card-header { border-bottom: 1px solid #E5E8ED !important; }
-body .arco-card-header-title { color: #1D2129 !important; }
+body .arco-card { background: var(--color-bg-surface) !important; border: 1px solid var(--color-border) !important; border-radius: var(--radius-lg) !important; box-shadow: var(--shadow-card) !important; }
+body .arco-card-header { border-bottom: 1px solid var(--color-border) !important; }
+body .arco-card-header-title { color: var(--color-text-primary) !important; }
 
 /* 表格 */
 body .arco-table { background: transparent !important; }
-body .arco-table-container { background: #FFFFFF !important; }
-body .arco-table-th { background: #FAFBFC !important; color: #86909C !important; border-bottom: 1px solid #E5E8ED !important; }
-body .arco-table-td { background: #FFFFFF !important; color: #1D2129 !important; border-bottom: 1px solid #F2F3F5 !important; }
-body .arco-table-tr:hover .arco-table-td { background: #F7F8FA !important; }
-body .arco-table-stripe .arco-table-tr:nth-child(even) .arco-table-td { background: #FAFBFC !important; }
+body .arco-table-container { background: var(--color-bg-surface) !important; }
+body .arco-table-th { background: var(--color-bg-elevated) !important; color: var(--color-text-tertiary) !important; border-bottom: 1px solid var(--color-border) !important; }
+body .arco-table-td { background: var(--color-bg-surface) !important; color: var(--color-text-primary) !important; border-bottom: 1px solid var(--color-border-subtle) !important; }
+body .arco-table-tr:hover .arco-table-td { background: var(--color-bg-elevated) !important; }
 
 /* 按钮 */
-body .arco-btn-primary { background: linear-gradient(135deg, #2B5AED, #165DFF) !important; border-color: #2B5AED !important; }
-body .arco-btn-primary:hover { background: linear-gradient(135deg, #3A69F5, #2B5AED) !important; border-color: #3A69F5 !important; }
-body .arco-btn-outline { border-color: #C9CDD4 !important; color: #4E5969 !important; background: #FFFFFF !important; }
-body .arco-btn-outline:hover { border-color: #2B5AED !important; color: #2B5AED !important; }
-body .arco-btn-text { color: #2B5AED !important; }
+body .arco-btn-primary { background: var(--color-primary) !important; border-color: var(--color-primary) !important; }
+body .arco-btn-primary:hover { background: var(--color-primary-hover) !important; border-color: var(--color-primary-hover) !important; }
+body .arco-btn-primary:active { background: var(--color-primary-active) !important; border-color: var(--color-primary-active) !important; }
+body .arco-btn-outline { border-color: var(--color-border-strong) !important; color: var(--color-text-secondary) !important; background: var(--color-bg-surface) !important; }
+body .arco-btn-outline:hover { border-color: var(--color-primary) !important; color: var(--color-primary) !important; }
+body .arco-btn-text { color: var(--color-primary) !important; }
 
 /* 输入框 */
-body .arco-input-wrapper { background: #FFFFFF !important; border-color: #E5E8ED !important; border-radius: 6px !important; }
-body .arco-input-wrapper:hover { border-color: #C9CDD4 !important; }
-body .arco-input-wrapper.arco-input-focus { border-color: #2B5AED !important; box-shadow: 0 0 0 2px rgba(43,90,237,0.12) !important; }
-body .arco-input { color: #1D2129 !important; }
-body .arco-input::placeholder { color: #C9CDD4 !important; }
+body .arco-input-wrapper { background: var(--color-bg-surface) !important; border-color: var(--color-border) !important; border-radius: var(--radius-md) !important; }
+body .arco-input-wrapper:hover { border-color: var(--color-border-strong) !important; }
+body .arco-input-wrapper.arco-input-focus { border-color: var(--color-primary) !important; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important; }
+body .arco-input { color: var(--color-text-primary) !important; }
+body .arco-input::placeholder { color: var(--color-text-disabled) !important; }
 
 /* Select */
-body .arco-select-view { background: #FFFFFF !important; border-color: #E5E8ED !important; }
-body .arco-select-view-value { color: #1D2129 !important; }
-body .arco-select-dropdown { background: #FFFFFF !important; border: 1px solid #E5E8ED !important; box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important; }
-body .arco-select-option { color: #4E5969 !important; }
-body .arco-select-option:hover { background: #F7F8FA !important; color: #1D2129 !important; }
-body .arco-select-option-active { background: #EFF4FF !important; color: #2B5AED !important; }
+body .arco-select-view { background: var(--color-bg-surface) !important; border-color: var(--color-border) !important; }
+body .arco-select-view-value { color: var(--color-text-primary) !important; }
+body .arco-select-dropdown { background: var(--color-bg-surface) !important; border: 1px solid var(--color-border) !important; box-shadow: var(--shadow-lg) !important; }
+body .arco-select-option { color: var(--color-text-secondary) !important; }
+body .arco-select-option:hover { background: var(--color-bg-elevated) !important; color: var(--color-text-primary) !important; }
+body .arco-select-option-active { background: var(--color-primary-light) !important; color: var(--color-primary) !important; }
 
 /* Modal */
-body .arco-modal-wrapper { background: rgba(0,0,0,0.3) !important; backdrop-filter: blur(4px) !important; }
-body .arco-modal { background: #FFFFFF !important; border: none !important; border-radius: 12px !important; box-shadow: 0 16px 48px rgba(0,0,0,0.12) !important; }
-body .arco-modal-header { border-bottom: 1px solid #E5E8ED !important; }
-body .arco-modal-title { color: #1D2129 !important; }
-body .arco-modal-footer { border-top: 1px solid #E5E8ED !important; }
+body .arco-modal-wrapper { background: rgba(0, 0, 0, 0.3) !important; backdrop-filter: blur(4px) !important; }
+body .arco-modal { background: var(--color-bg-surface) !important; border: none !important; border-radius: var(--radius-xl) !important; box-shadow: var(--shadow-xl) !important; }
+body .arco-modal-header { border-bottom: 1px solid var(--color-border) !important; }
+body .arco-modal-title { color: var(--color-text-primary) !important; }
+body .arco-modal-footer { border-top: 1px solid var(--color-border) !important; }
 
 /* Tag */
-body .arco-tag { border-radius: 6px !important; font-size: 12px !important; }
-body .arco-tag-blue { background: #EFF4FF !important; color: #2B5AED !important; border: none !important; }
-body .arco-tag-green { background: #E8FFF3 !important; color: #00B42A !important; border: none !important; }
-body .arco-tag-red { background: #FFECE8 !important; color: #F53F3F !important; border: none !important; }
-body .arco-tag-orange { background: #FFF7E8 !important; color: #FF7D00 !important; border: none !important; }
+body .arco-tag { border-radius: var(--radius-sm) !important; font-size: var(--font-size-xs) !important; }
+body .arco-tag-blue { background: var(--color-primary-light) !important; color: var(--color-primary) !important; border: none !important; }
+body .arco-tag-green { background: var(--color-success-light) !important; color: var(--color-success) !important; border: none !important; }
+body .arco-tag-red { background: var(--color-danger-light) !important; color: var(--color-danger) !important; border: none !important; }
+body .arco-tag-orange { background: var(--color-warning-light) !important; color: var(--color-warning) !important; border: none !important; }
 body .arco-tag-purple { background: #F5E8FF !important; color: #7B61FF !important; border: none !important; }
-body .arco-tag-cyan { background: #E8FFFB !important; color: #0FC6C2 !important; border: none !important; }
+body .arco-tag-cyan { background: var(--color-accent-light) !important; color: var(--color-accent) !important; border: none !important; }
 
 /* Badge */
 body .arco-badge-status-dot { width: 6px !important; height: 6px !important; }
 
 /* 分页 */
-body .arco-pagination { color: #4E5969 !important; }
-body .arco-pagination-item { background: #FFFFFF !important; border-color: #E5E8ED !important; color: #4E5969 !important; }
-body .arco-pagination-item-active { background: #2B5AED !important; border-color: #2B5AED !important; color: #fff !important; }
+body .arco-pagination { color: var(--color-text-secondary) !important; }
+body .arco-pagination-item { background: var(--color-bg-surface) !important; border-color: var(--color-border) !important; color: var(--color-text-secondary) !important; }
+body .arco-pagination-item-active { background: var(--color-primary) !important; border-color: var(--color-primary) !important; color: var(--color-text-inverse) !important; }
 
 /* Dropdown */
-body .arco-dropdown-list-wrapper { background: #FFFFFF !important; box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important; }
-body .arco-dropdown-option { color: #4E5969 !important; }
-body .arco-dropdown-option:hover { background: #F7F8FA !important; color: #1D2129 !important; }
+body .arco-dropdown-list-wrapper { background: var(--color-bg-surface) !important; box-shadow: var(--shadow-lg) !important; }
+body .arco-dropdown-option { color: var(--color-text-secondary) !important; }
+body .arco-dropdown-option:hover { background: var(--color-bg-elevated) !important; color: var(--color-text-primary) !important; }
 
 /* Popconfirm */
-body .arco-popconfirm { background: #FFFFFF !important; border: 1px solid #E5E8ED !important; box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important; }
-body .arco-popconfirm-content { color: #1D2129 !important; }
+body .arco-popconfirm { background: var(--color-bg-surface) !important; border: 1px solid var(--color-border) !important; box-shadow: var(--shadow-lg) !important; }
+body .arco-popconfirm-content { color: var(--color-text-primary) !important; }
 
 /* Breadcrumb */
-body .arco-breadcrumb-item { color: #86909C !important; }
-body .arco-breadcrumb-item:last-child { color: #1D2129 !important; }
+body .arco-breadcrumb-item { color: var(--color-text-tertiary) !important; }
+body .arco-breadcrumb-item:last-child { color: var(--color-text-primary) !important; }
 
 /* Spin */
-body .arco-spin-icon { color: #2B5AED !important; }
+body .arco-spin-icon { color: var(--color-primary) !important; }
 
 /* Timeline */
-body .arco-timeline-item-dot-inner { background: #2B5AED !important; }
+body .arco-timeline-item-dot-inner { background: var(--color-primary) !important; }
 
 /* Alert */
-body .arco-alert-info { background: #EFF4FF !important; border: 1px solid #D6E4FF !important; }
-body .arco-alert-info .arco-alert-content { color: #4E5969 !important; }
+body .arco-alert-info { background: var(--color-primary-light) !important; border: 1px solid var(--color-primary-border) !important; }
+body .arco-alert-info .arco-alert-content { color: var(--color-text-secondary) !important; }
 
 /* Statistic */
-body .arco-statistic-title { color: #86909C !important; }
-body .arco-statistic-value { color: #1D2129 !important; }
+body .arco-statistic-title { color: var(--color-text-tertiary) !important; }
+body .arco-statistic-value { color: var(--color-text-primary) !important; }
 
 /* Descriptions */
-body .arco-descriptions { background: #FFFFFF !important; }
-body .arco-descriptions-th { background: #FAFBFC !important; color: #86909C !important; border-color: #E5E8ED !important; }
-body .arco-descriptions-td { background: #FFFFFF !important; color: #1D2129 !important; border-color: #E5E8ED !important; }
+body .arco-descriptions { background: var(--color-bg-surface) !important; }
+body .arco-descriptions-th { background: var(--color-bg-elevated) !important; color: var(--color-text-tertiary) !important; border-color: var(--color-border) !important; }
+body .arco-descriptions-td { background: var(--color-bg-surface) !important; color: var(--color-text-primary) !important; border-color: var(--color-border) !important; }
 
 /* Checkbox */
-body .arco-checkbox-checked .arco-checkbox-icon { background: #2B5AED !important; border-color: #2B5AED !important; }
+body .arco-checkbox-checked .arco-checkbox-icon { background: var(--color-primary) !important; border-color: var(--color-primary) !important; }
 
 /* Link */
-body .arco-link { color: #2B5AED !important; }
+body .arco-link { color: var(--color-primary) !important; }
 
 /* InputNumber */
-body .arco-input-number { background: #FFFFFF !important; border-color: #E5E8ED !important; }
+body .arco-input-number { background: var(--color-bg-surface) !important; border-color: var(--color-border) !important; }
 
 /* Textarea */
-body .arco-textarea-wrapper { background: #FFFFFF !important; border-color: #E5E8ED !important; }
-body .arco-textarea-wrapper:focus-within { border-color: #2B5AED !important; box-shadow: 0 0 0 2px rgba(43,90,237,0.12) !important; }
+body .arco-textarea-wrapper { background: var(--color-bg-surface) !important; border-color: var(--color-border) !important; }
+body .arco-textarea-wrapper:focus-within { border-color: var(--color-primary) !important; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12) !important; }
 
 /* Form label */
-body .arco-form-item-label { color: #4E5969 !important; }
+body .arco-form-item-label { color: var(--color-text-secondary) !important; }
 
-/* ============ 白卡片 ============ */
-.card {
-  background: #FFFFFF;
-  border: 1px solid #E5E8ED;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  transform: translateY(-2px);
-}
-
-/* glass-card 兼容 → 改为白卡片 */
+/* ============ 统一卡片 (.glass-card) ============ */
 .glass-card {
-  background: #FFFFFF;
-  border: 1px solid #E5E8ED;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 .glass-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: var(--shadow-lg);
   transform: translateY(-1px);
 }
+
 
 /* ============ 页面切换动画 ============ */
 .page-enter-active { transition: opacity 0.2s, transform 0.2s; }

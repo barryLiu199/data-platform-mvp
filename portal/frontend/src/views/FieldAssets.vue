@@ -1,27 +1,20 @@
 <template>
   <div class="page">
-    <div class="glass-card page-header">
-      <div>
-        <h3 class="page-title">词根管理</h3>
-        <p class="page-desc">数据命名规范化 — 统一词根库，建表命名有据可依</p>
-      </div>
-      <a-space>
-        <a-input-search v-model="keyword" placeholder="搜索中文/英文..." style="width:200px" @search="loadData" allow-clear @clear="loadData" />
-        <a-upload :show-file-list="false" accept=".xlsx,.xls" :custom-request="handleImport">
-          <template #upload-button>
-            <a-button><icon-upload /> 导入 Excel</a-button>
-          </template>
-        </a-upload>
-        <a-button type="primary" @click="openCreate"><icon-plus /> 新建</a-button>
-      </a-space>
-    </div>
+    <PageHeader title="词根管理" description="数据命名规范化 — 统一词根库，建表命名有据可依">
+      <template #actions>
+        <a-space>
+          <a-input-search v-model="keyword" placeholder="搜索中文/英文..." style="width:200px" @search="loadData" allow-clear @clear="loadData" />
+          <a-upload :show-file-list="false" accept=".xlsx,.xls" :custom-request="handleImport">
+            <template #upload-button>
+              <a-button><icon-upload /> 导入 Excel</a-button>
+            </template>
+          </a-upload>
+          <a-button type="primary" @click="openCreate"><icon-plus /> 新建</a-button>
+        </a-space>
+      </template>
+    </PageHeader>
 
-    <div class="filter-tabs">
-      <div class="tab-item" :class="{ active: catFilter === '' }" @click="setCat('')">全部 {{ total }}</div>
-      <div class="tab-item" :class="{ active: catFilter === 'business' }" @click="setCat('business')">业务词根</div>
-      <div class="tab-item" :class="{ active: catFilter === 'technical' }" @click="setCat('technical')">技术词根</div>
-      <div class="tab-item" :class="{ active: catFilter === 'metric' }" @click="setCat('metric')">度量词根</div>
-    </div>
+    <FilterTabs v-model="catFilter" :tabs="catTabs" @update:model-value="setCat" />
 
     <!-- 命名建议器 -->
     <div class="glass-card suggest-card">
@@ -112,10 +105,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Message, Modal } from '@arco-design/web-vue'
 import { IconPlus, IconUpload } from '@arco-design/web-vue/es/icon'
 import { getWordRoots, createWordRoot, updateWordRoot, deleteWordRoot, importWordRoots, suggestNaming } from '../api'
+import PageHeader from '../components/PageHeader.vue'
+import FilterTabs from '../components/FilterTabs.vue'
+import type { FilterTab } from '../components/FilterTabs.vue'
 
 const loading = ref(false)
 const items = ref<any[]>([])
@@ -136,6 +132,13 @@ const suggestMatches = ref<any[]>([])
 function catColor(c: string) { return ({ business: 'blue', technical: 'orange', metric: 'green' } as any)[c] || 'gray' }
 function catLabel(c: string) { return ({ business: '业务词根', technical: '技术词根', metric: '度量词根' } as any)[c] || c }
 function setCat(c: string) { catFilter.value = c; loadData() }
+
+const catTabs = computed<FilterTab[]>(() => [
+  { label: '全部', value: '', count: total.value },
+  { label: '业务词根', value: 'business' },
+  { label: '技术词根', value: 'technical' },
+  { label: '度量词根', value: 'metric' },
+])
 
 async function loadData() {
   loading.value = true
@@ -212,26 +215,19 @@ onMounted(() => { loadData() })
 <style scoped>
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.page-header { padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 18px; font-weight: 600; color: #1D2129; }
-.page-desc { margin: 4px 0 0; font-size: 13px; color: #86909C; }
-.filter-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
-.tab-item { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; color: #4E5969; background: #F7F8FA; transition: all 0.15s; }
-.tab-item:hover { background: #EFF4FF; color: #2B5AED; }
-.tab-item.active { background: #2B5AED; color: #FFFFFF; }
 
 .suggest-card { padding: 14px 20px; margin-bottom: 12px; }
 .suggest-row { display: flex; align-items: center; gap: 12px; }
-.suggest-label { font-size: 13px; color: #4E5969; font-weight: 500; white-space: nowrap; }
-.suggest-arrow { color: #86909C; margin: 0 4px; }
-.suggest-code { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #165DFF; font-weight: 600; }
+.suggest-label { font-size: 13px; color: var(--color-text-secondary); font-weight: 500; white-space: nowrap; }
+.suggest-arrow { color: var(--color-text-tertiary); margin: 0 4px; }
+.suggest-code { font-family: var(--font-family-mono); font-size: 14px; color: var(--color-primary); font-weight: 600; }
 .suggest-matches { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 
 .table-card { padding: 0; overflow: auto; }
-.root-code { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #1D2129; font-weight: 500; }
-.example-code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #86909C; }
-.text-muted { color: #86909C; }
+.root-code { font-family: var(--font-family-mono); font-size: 13px; color: var(--color-text-primary); font-weight: 500; }
+.example-code { font-family: var(--font-family-mono); font-size: 12px; color: var(--color-text-tertiary); }
+.text-muted { color: var(--color-text-tertiary); }
 .empty-state { padding: 40px 0; text-align: center; }
-.pagination-wrap { padding: 16px 24px; display: flex; justify-content: flex-end; border-top: 1px solid #F2F3F5; }
-:deep(.arco-table-th) { background: #FAFBFC !important; }
+.pagination-wrap { padding: 16px 24px; display: flex; justify-content: flex-end; border-top: 1px solid var(--color-border-subtle); }
+:deep(.arco-table-th) { background: var(--color-bg-elevated) !important; }
 </style>

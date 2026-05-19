@@ -74,7 +74,7 @@
 
         <!-- SSO 登录区 -->
         <template v-if="enabledProviders.length > 0">
-          <a-divider style="margin: 16px 0; color: #C9CDD4; font-size: 12px;">或使用企业账号登录</a-divider>
+          <a-divider style="margin: 16px 0; color: var(--color-text-disabled); font-size: 12px;">或使用企业账号登录</a-divider>
           <div class="sso-buttons">
             <a-button
               v-for="p in enabledProviders"
@@ -160,14 +160,14 @@ onMounted(loadSsoProviders)
 .login-page {
   height: 100vh;
   display: flex;
-  background: #F5F7FA;
+  background: var(--color-bg-base);
   overflow: hidden;
 }
 
 /* 左侧品牌区 */
 .login-hero {
   flex: 1;
-  background: linear-gradient(135deg, #2B5AED, #165DFF, #00C9A7);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover), var(--color-accent));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -219,7 +219,7 @@ onMounted(loadSsoProviders)
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #FFFFFF;
+  background: var(--color-bg-surface);
   padding: 40px;
 }
 
@@ -241,13 +241,13 @@ onMounted(loadSsoProviders)
 .login-title {
   font-size: 24px;
   font-weight: 600;
-  color: #1D2129;
+  color: var(--color-text-primary);
   margin: 0 0 4px;
 }
 
 .login-subtitle {
   font-size: 13px;
-  color: #86909C;
+  color: var(--color-text-tertiary);
   margin: 0;
   letter-spacing: 1px;
 }
@@ -256,20 +256,20 @@ onMounted(loadSsoProviders)
   height: 42px;
   font-size: 15px;
   font-weight: 500;
-  background: linear-gradient(135deg, #2B5AED, #165DFF) !important;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover)) !important;
   border: none !important;
   border-radius: 8px !important;
   letter-spacing: 4px;
 }
 .login-btn:hover {
-  background: linear-gradient(135deg, #3A69F5, #2B5AED) !important;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover)) !important;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(43,90,237,0.25);
+  box-shadow: 0 4px 12px rgba(37,99,235,0.25);
 }
 
 .login-footer {
   text-align: center;
-  color: #C9CDD4;
+  color: var(--color-text-disabled);
   font-size: 12px;
   margin-top: 16px;
 }
@@ -287,7 +287,7 @@ onMounted(loadSsoProviders)
   height: 38px;
   border-radius: 8px !important;
   font-size: 13px;
-  color: #4E5969;
+  color: var(--color-text-secondary);
 }
 
 .sso-icon {
@@ -306,14 +306,14 @@ onMounted(loadSsoProviders)
 .copyright {
   margin-top: auto;
   padding-top: 24px;
-  color: #C9CDD4;
+  color: var(--color-text-disabled);
   font-size: 12px;
   letter-spacing: 0.5px;
 }
 
 /* Arco 样式覆盖 */
 :deep(.arco-form-item-label) {
-  color: #4E5969 !important;
+  color: var(--color-text-secondary) !important;
   font-size: 13px !important;
 }
 

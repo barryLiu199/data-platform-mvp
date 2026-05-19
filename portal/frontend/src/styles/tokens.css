@@ -1,0 +1,82 @@
+/* ============================================================
+   Design Tokens — CSS Custom Properties
+   唯一色值来源，Tailwind / Arco 覆盖 / Scoped CSS 均引用此文件
+   ============================================================ */
+
+:root {
+  /* --- 主色 Brand --- */
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-active: #1E40AF;
+  --color-primary-light: #EFF6FF;
+  --color-primary-border: #BFDBFE;
+
+  /* --- 辅助色 Accent --- */
+  --color-accent: #0EA5E9;
+  --color-accent-light: #F0F9FF;
+
+  /* --- 状态色 Status --- */
+  --color-success: #16A34A;
+  --color-success-light: #F0FDF4;
+  --color-warning: #F59E0B;
+  --color-warning-light: #FFFBEB;
+  --color-danger: #DC2626;
+  --color-danger-light: #FEF2F2;
+
+  /* --- 背景 Neutral --- */
+  --color-bg-base: #F8FAFC;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-elevated: #F1F5F9;
+
+  /* --- 边框 Border --- */
+  --color-border-subtle: #F1F5F9;
+  --color-border: #E2E8F0;
+  --color-border-strong: #CBD5E1;
+
+  /* --- 文字 Text --- */
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #94A3B8;
+  --color-text-disabled: #CBD5E1;
+  --color-text-inverse: #FFFFFF;
+
+  /* --- 字体 --- */
+  --font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+
+  /* --- 字号 --- */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+
+  /* --- 字重 --- */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* --- 间距 (4px grid) --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* --- 圆角 --- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* --- 阴影 --- */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --shadow-xl: 0 8px 32px rgba(15, 23, 42, 0.12);
+}
