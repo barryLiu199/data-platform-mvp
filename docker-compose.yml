@@ -59,7 +59,7 @@ services:
   # DolphinScheduler - 调度中心 (不对外暴露端口)
   # ============================================
   dolphinscheduler:
-    image: apache/dolphinscheduler-standalone-server:3.2.2
+    build: ./dolphinscheduler
     container_name: dmp-ds
     restart: always
     env_file: .env
