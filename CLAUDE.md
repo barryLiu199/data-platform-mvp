@@ -73,7 +73,7 @@ data-platform-mvp/
 | `dashboard.py` | `/dashboard` | security, ds_client | DataSource, SyncTask, Workflow, WordRoot |
 | `ds_proxy.py` | `/ds` | security, permissions, ds_client | Workflow |
 | `component.py` | `/components` | security, permissions | Component, ComponentFolder |
-| `workflow.py` | `/workflows` | security, permissions, ds_client, dsl_translator | Workflow, Component, DataSource |
+| `workflow.py` | `/workflows` | security, permissions, ds_client, dsl_translator | Workflow, WorkflowVersion, Component, DataSource |
 | `metadata.py` | `/metadata` | security, permissions | DataSource |
 | `system.py` | `/system` | permissions, ds_client | — |
 | `notifications.py` | `/notifications` | security | Notification |
@@ -82,7 +82,7 @@ data-platform-mvp/
 | `project.py` | `/projects` | security, permissions | Project, SyncTask |
 | `admin/*` | `/admin/*` | permissions | SysUser, SysRole, SysOAuthConfig, SysConfig, SysResourceAccess, SysNotifyChannel |
 
-### 数据模型 (app/models/) — 17 张表
+### 数据模型 (app/models/) — 18 张表
 
 | 模型 | 表名 | 被哪些 API 使用 |
 |------|------|---------------|
@@ -91,11 +91,12 @@ data-platform-mvp/
 | `SyncTask` | sync_task | sync_tasks, project, dashboard |
 | `Component` | component | component, workflow |
 | `ComponentFolder` | component_folder | component |
-| `Workflow` | workflow | workflow, ds_proxy, alert_rules, dashboard |
+| `Workflow` | workflow | workflow, ds_proxy, alert_rules, dashboard, project |
+| `WorkflowVersion` | workflow_version | workflow（版本历史/回滚） |
 | `WordRoot` | word_root | word_roots, dashboard |
 | `Notification` | notification | notifications |
 | `AlertRule` | alert_rule | alert_rules |
-| `Project` | project | project |
+| `Project` | project | project（含 workflow_count 统计） |
 | `SysRole/Permission/RolePerm/UserRole` | sys_role/* | auth, admin/roles, admin/users, main.py(种子) |
 | `SysResourceAccess` | sys_resource_access | admin/resource_access, permissions |
 | `SysOAuthConfig` | sys_oauth_config | admin/sso, auth |
@@ -161,7 +162,7 @@ data-platform-mvp/
 |------|---------|
 | 改 `DataSource` 模型字段 | datasources.py, sync_tasks.py, metadata.py, workflow.py, dashboard.py, db_adapter.py, datax_builder.py, 前端 DataSource.vue |
 | 改 `Component` 模型字段 | component.py, workflow.py(引用组件), dsl_translator.py, 前端 SqlDev.vue, WorkflowEditor.vue |
-| 改 `Workflow` 模型字段 | workflow.py, ds_proxy.py, alert_rules.py, dashboard.py, dsl_translator.py, 前端 Workflow.vue, WorkflowEditor.vue |
+| 改 `Workflow` 模型字段 | workflow.py, ds_proxy.py, alert_rules.py, dashboard.py, dsl_translator.py, project.py(workflow_count), 前端 Workflow.vue, WorkflowEditor.vue |
 | 改 `security.py` (认证) | 所有需认证的 API 都受影响，前端 401 拦截逻辑(api/index.ts) |
 | 改 `permissions.py` | 所有带 require_permission 的 API，前端 v-permission 指令 |
 | 改 `ds_client.py` | dashboard.py, ds_proxy.py, workflow.py, system.py |

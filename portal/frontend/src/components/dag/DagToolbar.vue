@@ -7,6 +7,7 @@ const emit = defineEmits<{
   (e: 'run'): void
   (e: 'back'): void
   (e: 'autoLayout'): void
+  (e: 'versions'): void
 }>()
 
 const statusMap: Record<string, { text: string; color: string }> = {
@@ -29,6 +30,7 @@ const statusMap: Record<string, { text: string; color: string }> = {
       </span>
     </div>
     <div class="dag-toolbar__right">
+      <button class="dag-toolbar__btn" @click="emit('versions')">版本</button>
       <button class="dag-toolbar__btn" @click="emit('autoLayout')">自动布局</button>
       <button class="dag-toolbar__btn" @click="emit('save')">保存</button>
       <button class="dag-toolbar__btn" @click="emit('test')">测试</button>

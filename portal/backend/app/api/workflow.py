@@ -9,7 +9,7 @@ from app.core.security import get_current_user
 from app.core.permissions import get_accessible_ids, check_resource_permission, require_permission
 from app.core.ds_client import get_ds_client
 from app.core.dsl_translator import translate_workflow, translate_workflow_dag
-from app.models.workflow import Workflow
+from app.models.workflow import Workflow, WorkflowVersion
 from app.models.component import Component
 from app.models.datasource import DataSource
 from app.models.user import SysUser
@@ -51,6 +51,7 @@ class DagPayload(BaseModel):
 class WorkflowCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
+    project_id: Optional[int] = None
     steps: List[WorkflowStep] = Field(default_factory=list)
     dag: Optional[DagPayload] = None
     cron_expression: Optional[str] = None
@@ -60,6 +61,7 @@ class WorkflowCreate(BaseModel):
 class WorkflowUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    project_id: Optional[int] = None
     steps: Optional[List[WorkflowStep]] = None
     dag: Optional[DagPayload] = None
     cron_expression: Optional[str] = None
@@ -123,6 +125,7 @@ def _serialize(w: Workflow, db: Session) -> dict:
         "name": w.name,
         "description": w.description,
         "tags": w.tags or [],
+        "project_id": w.project_id,
         "steps": enriched_steps,
         "dag": dag,
         "cron_expression": w.cron_expression,
@@ -335,6 +338,7 @@ def list_workflows(
     keyword: Optional[str] = None,
     status: Optional[str] = None,
     tag: Optional[str] = None,
+    project_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(get_current_user),
 ):
@@ -343,6 +347,11 @@ def list_workflows(
         q = q.filter(Workflow.name.contains(keyword))
     if status:
         q = q.filter(Workflow.status == status)
+    if project_id is not None:
+        if project_id == 0:
+            q = q.filter((Workflow.project_id == None) | (Workflow.project_id == 0))
+        else:
+            q = q.filter(Workflow.project_id == project_id)
     if tag:
         # 先用 contains 粗筛，再在应用层精确匹配，避免 "日报" 误匹配 "日报表"
         q = q.filter(Workflow.tags.contains(f'"{tag}"'))
@@ -382,6 +391,7 @@ def create_workflow(
         name=req.name,
         description=req.description,
         tags=req.tags or [],
+        project_id=req.project_id,
         steps_json=steps_data,
         dag_json=dag_data,
         cron_expression=req.cron_expression,
@@ -474,6 +484,8 @@ def update_workflow(
         w.name = updates["name"]
     if "description" in updates:
         w.description = updates["description"]
+    if "project_id" in updates:
+        w.project_id = updates["project_id"]
     if "tags" in updates:
         w.tags = updates["tags"] or []
     if "cron_expression" in updates:
@@ -607,6 +619,20 @@ async def publish_workflow(
     w.ds_process_code = pd_code
     w.ds_schedule_id = schedule_id
     w.status = STATUS_ONLINE
+    # 创建版本快照
+    ver = WorkflowVersion(
+        workflow_id=w.id,
+        version=w.version,
+        name=w.name,
+        description=w.description,
+        tags=w.tags,
+        dag_json=w.dag_json,
+        steps_json=w.steps_json,
+        cron_expression=w.cron_expression,
+        priority=w.priority,
+        published_by=current_user.id,
+    )
+    db.add(ver)
     db.commit()
     db.refresh(w)
     return {"message": "已发布并同步到 DS", **_serialize(w, db)}
@@ -741,3 +767,98 @@ async def cron_preview(body: dict):
     except Exception:
         return {"times": [], "error": "无效的 CRON 表达式"}
     return {"times": times}
+
+
+# ===== 版本历史 =====
+@router.get("/{wf_id}/versions")
+def list_versions(
+    wf_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(get_current_user),
+):
+    _get_or_404(db, wf_id)
+    if not check_resource_permission(db, current_user, "workflow", wf_id, "read"):
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    versions = db.query(WorkflowVersion).filter(
+        WorkflowVersion.workflow_id == wf_id
+    ).order_by(WorkflowVersion.id.desc()).all()
+    # 获取发布人名称
+    user_ids = {v.published_by for v in versions if v.published_by}
+    user_map = {}
+    if user_ids:
+        users = db.query(SysUser).filter(SysUser.id.in_(user_ids)).all()
+        user_map = {u.id: u.real_name or u.username for u in users}
+    return {
+        "items": [
+            {
+                "id": v.id,
+                "version": v.version,
+                "name": v.name,
+                "comment": v.comment,
+                "published_by": v.published_by,
+                "published_by_name": user_map.get(v.published_by, ""),
+                "published_at": str(v.published_at) if v.published_at else None,
+            }
+            for v in versions
+        ]
+    }
+
+
+@router.get("/{wf_id}/versions/{ver_id}")
+def get_version(
+    wf_id: int,
+    ver_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(get_current_user),
+):
+    _get_or_404(db, wf_id)
+    if not check_resource_permission(db, current_user, "workflow", wf_id, "read"):
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    v = db.query(WorkflowVersion).filter(
+        WorkflowVersion.id == ver_id, WorkflowVersion.workflow_id == wf_id
+    ).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="版本不存在")
+    return {
+        "id": v.id,
+        "version": v.version,
+        "name": v.name,
+        "description": v.description,
+        "tags": v.tags,
+        "dag_json": v.dag_json,
+        "steps_json": v.steps_json,
+        "cron_expression": v.cron_expression,
+        "priority": v.priority,
+        "comment": v.comment,
+        "published_by": v.published_by,
+        "published_at": str(v.published_at) if v.published_at else None,
+    }
+
+
+@router.post("/{wf_id}/versions/{ver_id}/rollback")
+def rollback_version(
+    wf_id: int,
+    ver_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(require_permission("workflow:write")),
+):
+    w = _get_or_404(db, wf_id)
+    if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
+        raise HTTPException(status_code=404, detail="工作流不存在")
+    v = db.query(WorkflowVersion).filter(
+        WorkflowVersion.id == ver_id, WorkflowVersion.workflow_id == wf_id
+    ).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="版本不存在")
+    w.name = v.name
+    w.description = v.description
+    w.tags = v.tags
+    w.dag_json = v.dag_json
+    w.steps_json = v.steps_json
+    w.cron_expression = v.cron_expression
+    w.priority = v.priority
+    w.version = (w.version or 1) + 1
+    w.status = STATUS_DRAFT
+    db.commit()
+    db.refresh(w)
+    return {"message": f"已回滚到 v{v.version}", **_serialize(w, db)}

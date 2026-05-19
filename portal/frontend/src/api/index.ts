@@ -213,6 +213,9 @@ export const scheduleWorkflowOnline = (id: number) => api.post(`/workflows/${id}
 export const scheduleWorkflowOffline = (id: number) => api.post(`/workflows/${id}/schedule/offline`)
 export const cronPreview = (cron_expression: string) => api.post('/workflows/cron-preview', { cron_expression })
 export const getScheduledWorkflows = () => api.get('/workflows/scheduled')
+export const getWorkflowVersions = (id: number) => api.get(`/workflows/${id}/versions`)
+export const getWorkflowVersion = (id: number, verId: number) => api.get(`/workflows/${id}/versions/${verId}`)
+export const rollbackWorkflowVersion = (id: number, verId: number) => api.post(`/workflows/${id}/versions/${verId}/rollback`)
 
 // Notify Channels
 export const adminListChannels = () => api.get('/admin/notify-channels')

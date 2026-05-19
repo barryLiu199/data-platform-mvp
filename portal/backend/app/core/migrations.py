@@ -7,6 +7,8 @@ def run_all_migrations():
     _migrate_sync_task_columns()
     _migrate_component_columns()
     _migrate_workflow_run_columns()
+    _migrate_workflow_project_id()
+    _migrate_workflow_version_table()
     _migrate_alert_rule_table()
     _migrate_word_root_table()
     _migrate_component_sort_order()
@@ -71,6 +73,48 @@ def _migrate_workflow_run_columns():
             if col not in existing:
                 conn.execute(text(ddl))
                 conn.commit()
+
+
+def _migrate_workflow_project_id():
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'workflow'"
+        )).fetchall()
+        existing = {r[0] for r in rows}
+        if 'project_id' not in existing:
+            conn.execute(text(
+                "ALTER TABLE workflow ADD COLUMN project_id BIGINT NULL COMMENT '所属项目'"
+            ))
+            conn.commit()
+
+
+def _migrate_workflow_version_table():
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT TABLE_NAME FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'workflow_version'"
+        )).fetchall()
+        if not rows:
+            conn.execute(text("""
+                CREATE TABLE workflow_version (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    workflow_id BIGINT NOT NULL,
+                    version INT NOT NULL,
+                    name VARCHAR(255),
+                    description TEXT,
+                    tags JSON,
+                    dag_json JSON,
+                    steps_json JSON,
+                    cron_expression VARCHAR(100),
+                    priority INT,
+                    comment VARCHAR(500),
+                    published_by BIGINT,
+                    published_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_workflow_id (workflow_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
 
 
 def _migrate_alert_rule_table():

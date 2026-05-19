@@ -1,6 +1,6 @@
 """项目 (Project) — 平台级工作空间
 
-v1 用于同步任务分组，未来可扩展到 workflow/component。
+用于同步任务和工作流分组。
 """
 from typing import Optional, List
 
@@ -14,6 +14,7 @@ from app.core.security import get_current_user
 from app.core.permissions import require_permission
 from app.models.project import Project
 from app.models.sync_task import SyncTask
+from app.models.workflow import Workflow
 from app.models.user import SysUser
 
 router = APIRouter(prefix="/projects", tags=["项目"])
@@ -36,7 +37,7 @@ def _assign_color(project_id: int) -> str:
     return PALETTE[(project_id - 1) % len(PALETTE)]
 
 
-def _serialize(p: Project, task_count: int = 0) -> dict:
+def _serialize(p: Project, task_count: int = 0, workflow_count: int = 0) -> dict:
     return {
         "id": p.id,
         "name": p.name,
@@ -47,6 +48,7 @@ def _serialize(p: Project, task_count: int = 0) -> dict:
         "is_default": bool(p.is_default),
         "owner_id": p.owner_id,
         "task_count": task_count,
+        "workflow_count": workflow_count,
         "created_at": str(p.created_at) if p.created_at else None,
         "updated_at": str(p.updated_at) if p.updated_at else None,
     }
@@ -88,13 +90,22 @@ def list_projects(
     # 未分组任务数 = project_id IS NULL
     unassigned = db.query(func.count(SyncTask.id)).filter(SyncTask.project_id.is_(None)).scalar() or 0
 
+    # 工作流数聚合
+    wf_counts = dict(
+        db.query(Workflow.project_id, func.count(Workflow.id))
+        .group_by(Workflow.project_id)
+        .all()
+    )
+    wf_unassigned = db.query(func.count(Workflow.id)).filter(Workflow.project_id.is_(None)).scalar() or 0
+
     items = []
     for p in projects:
         cnt = counts.get(p.id, 0)
+        wf_cnt = wf_counts.get(p.id, 0)
         if p.is_default:
-            # 默认项目把无归属任务数也算上
             cnt = cnt + unassigned
-        items.append(_serialize(p, cnt))
+            wf_cnt = wf_cnt + wf_unassigned
+        items.append(_serialize(p, cnt, wf_cnt))
     return {"items": items, "total": len(items)}
 
 
@@ -193,6 +204,9 @@ def delete_project(
     db.query(SyncTask).filter(SyncTask.project_id == p.id).update(
         {SyncTask.project_id: target_pid}, synchronize_session=False
     )
+    db.query(Workflow).filter(Workflow.project_id == p.id).update(
+        {Workflow.project_id: target_pid}, synchronize_session=False
+    )
     db.delete(p)
     db.commit()
     return {"message": "删除成功"}
@@ -206,7 +220,7 @@ def ensure_default_project(db: Session) -> Project:
     p = Project(
         name="未分组",
         code="default",
-        description="系统默认项目，存放未指定归属的同步任务",
+        description="系统默认项目，存放未指定归属的任务和工作流",
         color=PALETTE[0],
         status=1,
         is_default=1,

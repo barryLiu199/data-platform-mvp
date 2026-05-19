@@ -3,6 +3,21 @@
     <PageHeader title="工作流开发" description="DAG 工作流 — 组合多个组件形成可调度的有向无环图">
       <template #actions>
         <a-space>
+          <a-select
+            v-model="projectFilter"
+            placeholder="全部项目"
+            style="width: 140px;"
+            allow-clear
+            @change="setProject"
+          >
+            <a-option v-for="p in projects" :key="p.id" :value="p.id">
+              <span class="project-opt">
+                <span class="project-dot" :style="{ background: p.color }"></span>
+                {{ p.name }}
+                <span class="project-count">{{ p.workflow_count }}</span>
+              </span>
+            </a-option>
+          </a-select>
           <a-input-search
             v-model="searchVal"
             placeholder="搜索工作流名"
@@ -39,6 +54,15 @@
                 <span class="wf-name-link" @click="openEdit(record)">{{ record.name }}</span>
               </a-tooltip>
               <span class="wf-version">v{{ record.version }}</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="项目" :width="120">
+            <template #cell="{ record }">
+              <span v-if="projectMap[record.project_id]" class="project-cell">
+                <span class="project-dot" :style="{ background: projectMap[record.project_id].color }"></span>
+                {{ projectMap[record.project_id].name }}
+              </span>
+              <span v-else class="text-muted">未分组</span>
             </template>
           </a-table-column>
           <a-table-column title="优先级" :width="70">
@@ -130,6 +154,7 @@ import {
   getWorkflows, deleteWorkflow,
   testWorkflow, publishWorkflow, offlineWorkflow, runWorkflow,
   scheduleWorkflowOnline, scheduleWorkflowOffline,
+  getProjects,
 } from '../api'
 import { relativeDate, formatDuration } from '../utils/time'
 
@@ -138,6 +163,7 @@ interface Workflow {
   name: string
   description?: string
   tags?: string[]
+  project_id?: number | null
   status: string
   version: number
   priority?: number
@@ -150,6 +176,14 @@ interface Workflow {
   ds_process_code?: number | null
 }
 
+interface ProjectItem {
+  id: number
+  name: string
+  color: string
+  workflow_count: number
+  is_default: boolean
+}
+
 const router = useRouter()
 const loading = ref(false)
 const items = ref<Workflow[]>([])
@@ -160,6 +194,13 @@ const searchVal = ref('')
 const statusFilter = ref('')
 const tagFilter = ref('')
 const allTags = ref<string[]>([])
+const projectFilter = ref<number | undefined>(undefined)
+const projects = ref<ProjectItem[]>([])
+const projectMap = computed(() => {
+  const m: Record<number, ProjectItem> = {}
+  for (const p of projects.value) m[p.id] = p
+  return m
+})
 
 // ===== 工具函数 =====
 const statusTabs = computed<FilterTab[]>(() => [
@@ -194,6 +235,7 @@ function canDelete(w: Workflow) { return w.status === 'draft' || w.status === 'o
 
 function setStatus(s: string) { statusFilter.value = s; loadData() }
 function setTag(t: string) { tagFilter.value = t; loadData() }
+function setProject(_v: any) { loadData() }
 
 // ===== 数据加载 =====
 async function loadData() {
@@ -203,6 +245,7 @@ async function loadData() {
     if (searchVal.value) params.keyword = searchVal.value
     if (statusFilter.value) params.status = statusFilter.value
     if (tagFilter.value) params.tag = tagFilter.value
+    if (projectFilter.value !== undefined) params.project_id = projectFilter.value
     const res: any = await getWorkflows(params)
     items.value = res?.items || []
     total.value = res?.total || 0
@@ -290,7 +333,13 @@ function deleteWf(w: Workflow) {
   })
 }
 
-onMounted(() => { loadData() })
+onMounted(async () => {
+  try {
+    const res: any = await getProjects()
+    projects.value = res?.items || []
+  } catch {}
+  loadData()
+})
 </script>
 
 <style scoped>
@@ -338,4 +387,9 @@ onMounted(() => { loadData() })
 .mono { font-family: var(--font-family-mono); font-size: var(--font-size-xs); }
 .text-muted { color: var(--color-text-tertiary); }
 .pagination-wrap { padding: var(--space-4) var(--space-6); display: flex; justify-content: flex-end; border-top: 1px solid var(--color-border-subtle); }
+
+.project-opt { display: inline-flex; align-items: center; gap: 6px; }
+.project-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.project-count { font-size: 11px; color: var(--color-text-tertiary); margin-left: auto; }
+.project-cell { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
 </style>

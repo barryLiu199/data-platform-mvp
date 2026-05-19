@@ -12,6 +12,7 @@ class Workflow(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text)
     tags = Column(JSON, nullable=True)  # 标签列表，如 ["ODS同步", "日报"]
+    project_id = Column(BigInteger, nullable=True, comment="所属项目")
     # 旧版线性步骤（兼容，新版优先使用 dag_json）
     steps_json = Column(JSON, nullable=False, default=list)
     # DAG 结构: {nodes: [{id, component_id, name, position:{x,y}, skip}], edges: [{id, source, target}]}
@@ -36,3 +37,22 @@ class Workflow(Base):
     created_by = Column(BigInteger)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class WorkflowVersion(Base):
+    """工作流版本快照 — 每次发布时自动创建"""
+    __tablename__ = "workflow_version"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    workflow_id = Column(BigInteger, nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    name = Column(String(255))
+    description = Column(Text)
+    tags = Column(JSON)
+    dag_json = Column(JSON)
+    steps_json = Column(JSON)
+    cron_expression = Column(String(100))
+    priority = Column(Integer)
+    comment = Column(String(500))
+    published_by = Column(BigInteger)
+    published_at = Column(DateTime, server_default=func.now())

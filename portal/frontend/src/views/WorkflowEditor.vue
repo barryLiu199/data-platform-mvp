@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { Message } from '@arco-design/web-vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { Message, Modal } from '@arco-design/web-vue'
 import { IconClockCircle } from '@arco-design/web-vue/es/icon'
 import DagCanvas from '../components/dag/DagCanvas.vue'
 import DagNodePanel from '../components/dag/DagNodePanel.vue'
 import DagToolbar from '../components/dag/DagToolbar.vue'
 import ScheduleModal from '../components/ScheduleModal.vue'
-import { getWorkflow, createWorkflow, updateWorkflow, testWorkflow, publishWorkflow, runWorkflow } from '../api'
+import { getWorkflow, createWorkflow, updateWorkflow, testWorkflow, publishWorkflow, runWorkflow, getProjects, getWorkflowVersions, rollbackWorkflowVersion } from '../api'
 
 interface DagNode { id: string; component_id: number; type?: string; name: string; position: { x: number; y: number }; skip: boolean }
 interface DagEdge { id: string; source: string; target: string }
@@ -25,10 +25,43 @@ const scheduleStatus = ref('OFFLINE')
 const workflowTags = ref<string[]>([])
 const tagInput = ref('')
 const workflowPriority = ref(3)
+const workflowProjectId = ref<number | null>(null)
+const projectList = ref<any[]>([])
 const dagNodes = ref<DagNode[]>([])
 const dagEdges = ref<DagEdge[]>([])
 const loading = ref(false)
 const scheduleModalVisible = ref(false)
+const versionDrawerVisible = ref(false)
+const versionList = ref<any[]>([])
+const versionLoading = ref(false)
+
+// ---- 脏检查 ----
+const snapshot = ref('')
+function takeSnapshot() {
+  snapshot.value = JSON.stringify({
+    name: workflowName.value,
+    desc: workflowDesc.value,
+    cron: cronExpression.value,
+    tags: workflowTags.value,
+    priority: workflowPriority.value,
+    projectId: workflowProjectId.value,
+    nodes: dagNodes.value,
+    edges: dagEdges.value,
+  })
+}
+function currentState() {
+  return JSON.stringify({
+    name: workflowName.value,
+    desc: workflowDesc.value,
+    cron: cronExpression.value,
+    tags: workflowTags.value,
+    priority: workflowPriority.value,
+    projectId: workflowProjectId.value,
+    nodes: dagNodes.value,
+    edges: dagEdges.value,
+  })
+}
+const isDirty = computed(() => snapshot.value !== '' && currentState() !== snapshot.value)
 
 // 人类可读的调度描述
 const cronHumanReadable = computed(() => {
@@ -59,10 +92,16 @@ const cronHumanReadable = computed(() => {
 })
 
 onMounted(async () => {
+  try {
+    const pRes: any = await getProjects()
+    projectList.value = pRes?.items || []
+  } catch {}
   const id = route.params.id as string
   if (id && id !== 'new') {
     workflowId.value = parseInt(id)
     await loadWorkflow()
+  } else {
+    takeSnapshot()
   }
 })
 
@@ -82,6 +121,7 @@ async function loadWorkflow() {
   scheduleStatus.value = res.schedule_status || 'OFFLINE'
   workflowTags.value = res.tags || []
   workflowPriority.value = res.priority || 3
+  workflowProjectId.value = res.project_id || null
   if (res.dag && res.dag.nodes) {
     dagNodes.value = res.dag.nodes
     dagEdges.value = res.dag.edges || []
@@ -94,6 +134,7 @@ async function loadWorkflow() {
       id: `edge-${i+1}`, source: `node-${i+1}`, target: `node-${i+2}`,
     }))
   }
+  takeSnapshot()
 }
 
 function onDagUpdate(dag: { nodes: DagNode[]; edges: DagEdge[] }) {
@@ -119,6 +160,7 @@ async function handleSave() {
       cron_expression: cronExpression.value || null,
       tags: workflowTags.value,
       priority: workflowPriority.value,
+      project_id: workflowProjectId.value,
       dag: { nodes: dagNodes.value, edges: dagEdges.value },
     }
     if (workflowId.value) {
@@ -132,6 +174,7 @@ async function handleSave() {
       Message.success('创建成功')
     }
     await loadWorkflow()
+    takeSnapshot()
   } catch (e: any) {
     Message.error(e?.response?.data?.detail || '保存失败')
   } finally { loading.value = false }
@@ -163,7 +206,66 @@ async function handleRun() {
   } catch (e: any) { Message.error(e?.response?.data?.detail || '运行失败') }
 }
 
-function handleBack() { router.push('/workflows') }
+async function openVersionDrawer() {
+  if (!workflowId.value) { Message.info('请先保存工作流'); return }
+  versionDrawerVisible.value = true
+  versionLoading.value = true
+  try {
+    const res: any = await getWorkflowVersions(workflowId.value)
+    versionList.value = res?.items || []
+  } catch { versionList.value = [] }
+  versionLoading.value = false
+}
+
+async function doRollback(verId: number, verNum: number) {
+  if (!workflowId.value) return
+  Modal.confirm({
+    title: '回滚版本',
+    content: `确认回滚到 v${verNum}？当前内容将被覆盖，状态变为草稿。`,
+    onOk: async () => {
+      try {
+        await rollbackWorkflowVersion(workflowId.value!, verId)
+        Message.success(`已回滚到 v${verNum}`)
+        versionDrawerVisible.value = false
+        await loadWorkflow()
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '回滚失败') }
+    },
+  })
+}
+
+function handleBack() {
+  if (!isDirty.value) { router.push('/workflows'); return }
+  Modal.confirm({
+    title: '未保存的修改',
+    content: '当前工作流存在未保存的修改，是否保存？',
+    okText: '保存并退出',
+    cancelText: '放弃修改',
+    onOk: async () => { await handleSave(); router.push('/workflows') },
+    onCancel: () => { snapshot.value = ''; router.push('/workflows') },
+  })
+}
+
+// 路由守卫：浏览器后退/侧栏导航
+let routeLeaveConfirmed = false
+onBeforeRouteLeave((_to, _from, next) => {
+  if (!isDirty.value || routeLeaveConfirmed) { routeLeaveConfirmed = false; next(); return }
+  Modal.confirm({
+    title: '未保存的修改',
+    content: '当前工作流存在未保存的修改，确认离开？',
+    okText: '保存并离开',
+    cancelText: '放弃修改',
+    onOk: async () => { await handleSave(); routeLeaveConfirmed = true; next() },
+    onCancel: () => { snapshot.value = ''; routeLeaveConfirmed = true; next() },
+  })
+  next(false)
+})
+
+// 浏览器刷新/关闭标签页
+function beforeUnloadHandler(e: BeforeUnloadEvent) {
+  if (isDirty.value) { e.preventDefault(); e.returnValue = '' }
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnloadHandler))
+onUnmounted(() => window.removeEventListener('beforeunload', beforeUnloadHandler))
 function handleAutoLayout() { dagCanvas.value?.autoLayout() }
 </script>
 
@@ -174,8 +276,23 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
       :status="workflowStatus"
       @save="handleSave" @test="handleTest" @publish="handlePublish"
       @run="handleRun" @back="handleBack" @auto-layout="handleAutoLayout"
+      @versions="openVersionDrawer"
     />
     <div class="workflow-editor__meta">
+      <a-select
+        v-model="workflowProjectId"
+        placeholder="选择项目"
+        allow-clear
+        size="small"
+        class="workflow-editor__project-select"
+      >
+        <a-option v-for="p in projectList" :key="p.id" :value="p.id">
+          <span class="project-opt">
+            <span class="project-dot" :style="{ background: p.color }"></span>
+            {{ p.name }}
+          </span>
+        </a-option>
+      </a-select>
       <input v-model="workflowName" placeholder="工作流名称" class="workflow-editor__name-input" />
       <input v-model="workflowDesc" placeholder="描述（可选）" class="workflow-editor__desc-input" />
       <select v-model="workflowPriority" class="workflow-editor__priority-select">
@@ -215,6 +332,36 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
       @update:visible="scheduleModalVisible = $event"
       @save="onScheduleSave"
     />
+
+    <!-- 版本历史抽屉 -->
+    <a-drawer
+      :visible="versionDrawerVisible"
+      title="版本历史"
+      :width="400"
+      @cancel="versionDrawerVisible = false"
+      :footer="false"
+      unmount-on-close
+    >
+      <a-spin :loading="versionLoading" style="width: 100%;">
+        <div v-if="!versionList.length && !versionLoading" class="ver-empty">
+          暂无版本记录，发布后自动生成
+        </div>
+        <div v-for="v in versionList" :key="v.id" class="ver-item">
+          <div class="ver-item__header">
+            <span class="ver-item__version">v{{ v.version }}</span>
+            <span class="ver-item__name">{{ v.name }}</span>
+          </div>
+          <div class="ver-item__meta">
+            <span>{{ v.published_by_name || '系统' }}</span>
+            <span>{{ v.published_at }}</span>
+          </div>
+          <div v-if="v.comment" class="ver-item__comment">{{ v.comment }}</div>
+          <div class="ver-item__actions">
+            <a-button type="text" size="mini" @click="doRollback(v.id, v.version)">回滚到此版本</a-button>
+          </div>
+        </div>
+      </a-spin>
+    </a-drawer>
   </div>
 </template>
 
@@ -246,4 +393,18 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
 .tag-remove:hover { opacity: 1; }
 .tag-add-input { border: none; outline: none; font-size: 12px; color: #666; min-width: 80px; background: transparent; }
 .workflow-editor__body { flex: 1; display: flex; overflow: hidden; }
+
+.workflow-editor__project-select { width: 130px; flex-shrink: 0; }
+.project-opt { display: inline-flex; align-items: center; gap: 6px; }
+.project-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* 版本历史 */
+.ver-empty { text-align: center; color: var(--color-text-tertiary); padding: 40px 0; }
+.ver-item { padding: 12px 0; border-bottom: 1px solid var(--color-border-subtle); }
+.ver-item__header { display: flex; align-items: center; gap: 8px; }
+.ver-item__version { font-family: var(--font-family-mono); font-size: 13px; font-weight: 600; color: var(--color-primary); }
+.ver-item__name { font-size: 13px; color: var(--color-text-primary); }
+.ver-item__meta { display: flex; gap: 12px; font-size: 12px; color: var(--color-text-tertiary); margin-top: 4px; }
+.ver-item__comment { font-size: 12px; color: var(--color-text-secondary); margin-top: 4px; }
+.ver-item__actions { margin-top: 6px; }
 </style>
