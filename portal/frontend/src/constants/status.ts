@@ -8,12 +8,16 @@
    用于：SchedulerHistory, InstanceDetail, SchedulerTasks(实例列)
    ============================================================ */
 export const EXECUTION_STATUS = {
-  SUCCESS:             { label: '成功',   color: '#16A34A', bg: '#F0FDF4' },
-  FAILURE:             { label: '失败',   color: '#DC2626', bg: '#FEF2F2' },
-  RUNNING_EXECUTION:   { label: '运行中', color: '#2563EB', bg: '#EFF6FF' },
-  STOP:                { label: '停止',   color: '#94A3B8', bg: '#F1F5F9' },
-  KILL:                { label: '已终止', color: '#F59E0B', bg: '#FFFBEB' },
-  NEED_FAULT_TOLERANCE:{ label: '容错中', color: '#F59E0B', bg: '#FFFBEB' },
+  SUCCESS:   { label: '成功',   color: '#16A34A', bg: '#F0FDF4' },
+  FAILURE:   { label: '失败',   color: '#DC2626', bg: '#FEF2F2' },
+  RUNNING:   { label: '运行中', color: '#2563EB', bg: '#EFF6FF' },
+  STOP:      { label: '停止',   color: '#94A3B8', bg: '#F1F5F9' },
+  KILL:      { label: '已终止', color: '#F59E0B', bg: '#FFFBEB' },
+  SUBMITTED: { label: '已提交', color: '#0EA5E9', bg: '#F0F9FF' },
+  PAUSE:     { label: '暂停',   color: '#F59E0B', bg: '#FFFBEB' },
+  DELAY:     { label: '延迟',   color: '#8B5CF6', bg: '#F5F3FF' },
+  WAIT:      { label: '等待',   color: '#6B7280', bg: '#F9FAFB' },
+  NEED_FAULT_TOLERANCE: { label: '容错中', color: '#F59E0B', bg: '#FFFBEB' },
 } as const
 
 export type ExecutionStatusKey = keyof typeof EXECUTION_STATUS

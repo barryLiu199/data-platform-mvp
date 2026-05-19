@@ -17,6 +17,7 @@ def run_all_migrations():
     _migrate_sys_user_oauth_unique()
     _migrate_sys_notify_channel_table()
     _migrate_alert_rule_channel_ids()
+    _migrate_workflow_params()
 
 
 def _migrate_sync_task_columns():
@@ -263,3 +264,19 @@ def _migrate_alert_rule_channel_ids():
                 "ALTER TABLE alert_rule ADD COLUMN notify_channel_ids JSON NULL COMMENT '通知渠道ID列表'"
             ))
             conn.commit()
+
+
+def _migrate_workflow_params():
+    """workflow / workflow_version 添加 params_json 列"""
+    with engine.connect() as conn:
+        for table in ['workflow', 'workflow_version']:
+            rows = conn.execute(text(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                f"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table}'"
+            )).fetchall()
+            existing = {r[0] for r in rows}
+            if 'params_json' not in existing:
+                conn.execute(text(
+                    f"ALTER TABLE {table} ADD COLUMN params_json JSON NULL COMMENT '工作流全局参数'"
+                ))
+                conn.commit()

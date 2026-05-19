@@ -255,19 +255,45 @@ async def complement_workflow(
     code: int,
     start_date: str,
     end_date: str,
+    run_mode: str = "serial",
+    start_params: str = "",
     current_user: SysUser = Depends(require_permission("workflow:write")),
 ):
     """补数：批量执行指定日期范围"""
+    # 日期格式校验
+    for label, val in [("开始日期", start_date), ("结束日期", end_date)]:
+        try:
+            datetime.strptime(val.strip(), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            try:
+                datetime.strptime(val.strip(), "%Y-%m-%d")
+                # 自动补 00:00:00
+            except ValueError:
+                raise HTTPException(400, f"{label}格式不正确，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss")
+
+    # 规范化为 DS 需要的格式
+    def normalize_date(d: str) -> str:
+        d = d.strip()
+        if len(d) == 10:
+            d += " 00:00:00"
+        return d
+
+    schedule_time = f"{normalize_date(start_date)},{normalize_date(end_date)}"
+
     ds = _ds()
     pc = await _project_code(ds)
-    result = await ds.post(f"/projects/{pc}/executors/start-process-instance", data={
+    data = {
         "processDefinitionCode": code,
         "failureStrategy": "CONTINUE",
         "warningType": "NONE",
-        "scheduleTime": f"{start_date},{end_date}",
-        "startParams": "",
+        "scheduleTime": schedule_time,
+        "startParams": start_params,
         "execType": "COMPLEMENT_DATA",
-    })
+    }
+    if run_mode == "parallel":
+        data["runMode"] = "RUN_MODE_PARALLEL"
+
+    result = await ds.post(f"/projects/{pc}/executors/start-process-instance", data=data)
     if result is None:
         raise HTTPException(502, "补数失败")
     return {"msg": "ok", "data": result}
@@ -285,6 +311,7 @@ async def list_instances(
     startDate: str = "",
     endDate: str = "",
     processDefinitionCode: int = 0,
+    keyword: str = "",
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(get_current_user),
 ):
@@ -300,6 +327,8 @@ async def list_instances(
         params["endDate"] = endDate
     if processDefinitionCode:
         params["processDefinitionCode"] = processDefinitionCode
+    if keyword:
+        params["searchVal"] = keyword
 
     data = await ds.get(f"/projects/{pc}/process-instances", params=params)
     if not data:
@@ -331,16 +360,31 @@ async def list_instances(
             or (f"工作流-{pd_code}" if pd_code else f"实例-{inst.get('id')}")
         )
 
+        # 触发类型: SCHEDULER / COMPLEMENT_DATA / manual
+        cmd_type = inst.get("commandType", "")
+        if "COMPLEMENT" in cmd_type:
+            trigger_type = "complement"
+        elif "SCHEDULER" in cmd_type:
+            trigger_type = "schedule"
+        else:
+            trigger_type = "manual"
+
         items.append({
             "id": inst.get("id"),
             "processDefinitionCode": pd_code,
             "name": name,
             "state": _fmt_state(inst.get("state")),
+            "triggerType": trigger_type,
             "startTime": start,
             "endTime": end,
             "duration": duration,
             "runTimes": inst.get("runTimes"),
         })
+
+    # keyword 也按 Portal 名称做 Python 侧过滤（DS searchVal 只搜 DS 名称）
+    if keyword:
+        kw_lower = keyword.lower()
+        items = [i for i in items if kw_lower in i["name"].lower() or kw_lower in str(i["id"])]
 
     return {"list": items, "total": data.get("total", 0)}
 

@@ -26,6 +26,8 @@ class Workflow(Base):
     version = Column(Integer, default=1, nullable=False)
     # 优先级: 1=P1高, 2=P2中, 3=P3低
     priority = Column(Integer, default=3, nullable=False)
+    # 工作流级参数: [{prop, direct, type, value}]
+    params_json = Column(JSON, nullable=True, comment="工作流全局参数")
     # 缓存最近运行信息（由 sync-last-run 端点更新）
     last_run_status = Column(String(50))
     last_run_time = Column(DateTime)
@@ -53,6 +55,7 @@ class WorkflowVersion(Base):
     steps_json = Column(JSON)
     cron_expression = Column(String(100))
     priority = Column(Integer)
+    params_json = Column(JSON)
     comment = Column(String(500))
     published_by = Column(BigInteger)
     published_at = Column(DateTime, server_default=func.now())

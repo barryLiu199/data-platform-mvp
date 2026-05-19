@@ -179,6 +179,9 @@
                 <template #icon><icon-upload /></template>
                 发布
               </a-button>
+              <a-button size="small" @click="paramsDrawerVisible = true">
+                参数{{ activeTab.localParams?.length ? ` (${activeTab.localParams.length})` : '' }}
+              </a-button>
             </a-space>
           </div>
 
@@ -260,6 +263,47 @@
       @select="onMenuSelect"
     />
 
+    <!-- 参数编辑抽屉 -->
+    <a-drawer
+      :visible="paramsDrawerVisible"
+      title="组件参数"
+      :width="520"
+      @cancel="paramsDrawerVisible = false"
+      :footer="false"
+      unmount-on-close
+    >
+      <div v-if="activeTab" class="params-editor">
+        <div class="params-hint">
+          定义组件运行时的参数，可在 SQL/脚本中使用 <code>${'{'}param_name{'}'}</code> 引用。
+        </div>
+        <div v-for="(p, idx) in (activeTab.localParams || [])" :key="idx" class="param-row">
+          <a-input v-model="p.prop" placeholder="参数名" size="small" style="width: 120px;" />
+          <a-select v-model="p.direct" size="small" style="width: 80px;">
+            <a-option value="IN">IN</a-option>
+            <a-option value="OUT">OUT</a-option>
+            <a-option value="LOCAL">LOCAL</a-option>
+          </a-select>
+          <a-select v-model="p.type" size="small" style="width: 110px;">
+            <a-option value="VARCHAR">VARCHAR</a-option>
+            <a-option value="INTEGER">INTEGER</a-option>
+            <a-option value="LONG">LONG</a-option>
+            <a-option value="FLOAT">FLOAT</a-option>
+            <a-option value="DATE">DATE</a-option>
+            <a-option value="TIME">TIME</a-option>
+            <a-option value="TIMESTAMP">TIMESTAMP</a-option>
+          </a-select>
+          <a-input v-model="p.value" placeholder="默认值" size="small" style="flex: 1;" />
+          <a-button type="text" size="mini" status="danger" @click="activeTab!.localParams!.splice(idx, 1); activeTab!.dirty = true">
+            <template #icon><icon-delete /></template>
+          </a-button>
+        </div>
+        <a-button type="dashed" size="small" long @click="addParam">
+          <template #icon><icon-plus /></template>
+          添加参数
+        </a-button>
+      </div>
+    </a-drawer>
+
     <!-- DataX 同步任务向导 -->
     <SyncTaskWizard
       v-model:visible="wizardVisible"
@@ -276,7 +320,7 @@ import FileTreePanel from '../components/FileTreePanel.vue'
 import { TYPE_GROUPS_WITH_DATAX, type TreeNode } from '../composables/useFileTree'
 import { Message } from '@arco-design/web-vue'
 import {
-  IconPlus, IconPlayArrow, IconSave, IconUpload,
+  IconPlus, IconPlayArrow, IconSave, IconUpload, IconDelete,
 } from '@arco-design/web-vue/es/icon'
 import CodeEditor from '../components/CodeEditor.vue'
 import ContextMenu from '../components/ContextMenu.vue'
@@ -306,6 +350,7 @@ interface Tab {
   folderId?: number | null
   datasourceId?: number
   syncTaskId?: number | null
+  localParams?: { prop: string; direct: string; type: string; value: string }[]
   dirty: boolean
 }
 
@@ -327,6 +372,15 @@ const result = ref<any>(null)
 
 // DataX 同步任务向导
 const wizardVisible = ref(false)
+
+// 参数抽屉
+const paramsDrawerVisible = ref(false)
+function addParam() {
+  if (!activeTab.value) return
+  if (!activeTab.value.localParams) activeTab.value.localParams = []
+  activeTab.value.localParams.push({ prop: '', direct: 'IN', type: 'VARCHAR', value: '' })
+  activeTab.value.dirty = true
+}
 
 const saveModalVisible = ref(false)
 const saveName = ref('')
@@ -404,6 +458,7 @@ function openComp(c: any) {
     language: c.type as Language,
     componentId: c.id,
     folderId: c.folder_id ?? null,
+    localParams: cfg.localParams || [],
     datasourceId: (() => {
       const rawId = cfg.datasource_id || c.datasource_id || undefined
       if (rawId == null) return undefined
@@ -648,6 +703,7 @@ async function doSave(tab: Tab) {
     const langKey = tab.language === 'sql' ? 'sql' : 'script'
     const config_json: any = { [langKey]: tab.code }
     if (tab.datasourceId != null) config_json.datasource_id = tab.datasourceId
+    if (tab.localParams?.length) config_json.localParams = tab.localParams
 
     const payload: any = {
       name: tab.name,
@@ -1355,4 +1411,10 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 }
 .log-ok { color: var(--color-text-primary); }
 .log-err { color: var(--color-danger); }
+
+/* 参数编辑器 */
+.params-editor { display: flex; flex-direction: column; gap: 12px; }
+.params-hint { font-size: 12px; color: var(--color-text-tertiary); line-height: 1.6; padding: 10px 12px; background: var(--color-bg-elevated); border-radius: var(--radius-md); }
+.params-hint code { background: var(--color-bg-base); padding: 1px 4px; border-radius: 3px; font-family: var(--font-family-mono); font-size: 11px; }
+.param-row { display: flex; align-items: center; gap: 8px; }
 </style>

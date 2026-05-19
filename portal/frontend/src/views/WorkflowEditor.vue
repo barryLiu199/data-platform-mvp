@@ -2,11 +2,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
-import { IconClockCircle } from '@arco-design/web-vue/es/icon'
+import { IconClockCircle, IconCode, IconDelete } from '@arco-design/web-vue/es/icon'
 import DagCanvas from '../components/dag/DagCanvas.vue'
 import DagNodePanel from '../components/dag/DagNodePanel.vue'
 import DagToolbar from '../components/dag/DagToolbar.vue'
 import ScheduleModal from '../components/ScheduleModal.vue'
+import ComplementModal from '../components/ComplementModal.vue'
 import { getWorkflow, createWorkflow, updateWorkflow, testWorkflow, publishWorkflow, runWorkflow, getProjects, getWorkflowVersions, rollbackWorkflowVersion } from '../api'
 
 interface DagNode { id: string; component_id: number; type?: string; name: string; position: { x: number; y: number }; skip: boolean }
@@ -31,9 +32,15 @@ const dagNodes = ref<DagNode[]>([])
 const dagEdges = ref<DagEdge[]>([])
 const loading = ref(false)
 const scheduleModalVisible = ref(false)
+const complementVisible = ref(false)
+const dsProcessCode = ref<number | null>(null)
 const versionDrawerVisible = ref(false)
 const versionList = ref<any[]>([])
 const versionLoading = ref(false)
+const paramsDrawerVisible = ref(false)
+const workflowParams = ref<{ prop: string; direct: string; type: string; value: string }[]>([])
+function addParam() { workflowParams.value.push({ prop: '', direct: 'IN', type: 'VARCHAR', value: '' }) }
+function removeParam(i: number) { workflowParams.value.splice(i, 1) }
 
 // ---- 脏检查 ----
 const snapshot = ref('')
@@ -47,6 +54,7 @@ function takeSnapshot() {
     projectId: workflowProjectId.value,
     nodes: dagNodes.value,
     edges: dagEdges.value,
+    params: workflowParams.value,
   })
 }
 function currentState() {
@@ -59,6 +67,7 @@ function currentState() {
     projectId: workflowProjectId.value,
     nodes: dagNodes.value,
     edges: dagEdges.value,
+    params: workflowParams.value,
   })
 }
 const isDirty = computed(() => snapshot.value !== '' && currentState() !== snapshot.value)
@@ -119,9 +128,11 @@ async function loadWorkflow() {
   workflowStatus.value = res.status
   cronExpression.value = res.cron_expression || ''
   scheduleStatus.value = res.schedule_status || 'OFFLINE'
+  dsProcessCode.value = res.ds_process_code || null
   workflowTags.value = res.tags || []
   workflowPriority.value = res.priority || 3
   workflowProjectId.value = res.project_id || null
+  workflowParams.value = res.params || []
   if (res.dag && res.dag.nodes) {
     dagNodes.value = res.dag.nodes
     dagEdges.value = res.dag.edges || []
@@ -162,6 +173,7 @@ async function handleSave() {
       priority: workflowPriority.value,
       project_id: workflowProjectId.value,
       dag: { nodes: dagNodes.value, edges: dagEdges.value },
+      params: workflowParams.value.length ? workflowParams.value : undefined,
     }
     if (workflowId.value) {
       await updateWorkflow(workflowId.value, payload)
@@ -198,12 +210,35 @@ async function handlePublish() {
   } catch (e: any) { Message.error(e?.response?.data?.detail || '发布失败') }
 }
 
+const runParamsVisible = ref(false)
+const runParamsOverride = ref<{ prop: string; value: string }[]>([])
+
 async function handleRun() {
   if (!workflowId.value) return
+  // 有参数时弹出参数覆盖弹窗
+  if (workflowParams.value.length > 0) {
+    runParamsOverride.value = workflowParams.value.map(p => ({ prop: p.prop, value: p.value }))
+    runParamsVisible.value = true
+    return
+  }
+  await doRun()
+}
+
+async function doRun(paramsOverride?: Record<string, string>) {
+  if (!workflowId.value) return
   try {
-    await runWorkflow(workflowId.value)
+    await runWorkflow(workflowId.value, paramsOverride)
     Message.success('已触发运行')
+    runParamsVisible.value = false
   } catch (e: any) { Message.error(e?.response?.data?.detail || '运行失败') }
+}
+
+function confirmRunWithParams() {
+  const params: Record<string, string> = {}
+  for (const p of runParamsOverride.value) {
+    if (p.prop) params[p.prop] = p.value
+  }
+  doRun(Object.keys(params).length ? params : undefined)
 }
 
 async function openVersionDrawer() {
@@ -274,9 +309,10 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
     <DagToolbar
       :workflow-name="workflowName"
       :status="workflowStatus"
+      :ds-process-code="dsProcessCode"
       @save="handleSave" @test="handleTest" @publish="handlePublish"
       @run="handleRun" @back="handleBack" @auto-layout="handleAutoLayout"
-      @versions="openVersionDrawer"
+      @versions="openVersionDrawer" @complement="complementVisible = true"
     />
     <div class="workflow-editor__meta">
       <a-select
@@ -318,6 +354,11 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
           @keydown.enter.prevent="() => { const v = tagInput.trim(); if(v && !workflowTags.includes(v)) workflowTags.push(v); tagInput = '' }"
           @keydown.backspace="() => { if(!tagInput && workflowTags.length) workflowTags.pop() }"
         />
+      </div>
+      <div class="params-trigger" @click="paramsDrawerVisible = true">
+        <icon-code style="font-size: 14px;" />
+        <span class="params-text">参数</span>
+        <span v-if="workflowParams.length" class="params-badge">{{ workflowParams.length }}</span>
       </div>
     </div>
     <div class="workflow-editor__body">
@@ -362,6 +403,71 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
         </div>
       </a-spin>
     </a-drawer>
+
+    <!-- 补数弹窗 -->
+    <ComplementModal
+      v-if="dsProcessCode"
+      :visible="complementVisible"
+      :workflow-name="workflowName"
+      :ds-process-code="dsProcessCode"
+      @update:visible="complementVisible = $event"
+    />
+
+    <!-- 工作流参数抽屉 -->
+    <a-drawer
+      :visible="paramsDrawerVisible"
+      title="工作流全局参数"
+      :width="560"
+      @cancel="paramsDrawerVisible = false"
+      :footer="false"
+      unmount-on-close
+    >
+      <div class="params-drawer">
+        <a-button type="outline" size="small" @click="addParam" style="margin-bottom: 12px;">+ 添加参数</a-button>
+        <div v-if="!workflowParams.length" class="params-empty">暂无参数，点击上方按钮添加</div>
+        <div v-for="(p, i) in workflowParams" :key="i" class="param-row">
+          <a-input v-model="p.prop" placeholder="参数名" size="small" style="width: 120px;" />
+          <a-select v-model="p.direct" size="small" style="width: 80px;">
+            <a-option value="IN">IN</a-option>
+            <a-option value="OUT">OUT</a-option>
+            <a-option value="LOCAL">LOCAL</a-option>
+          </a-select>
+          <a-select v-model="p.type" size="small" style="width: 110px;">
+            <a-option value="VARCHAR">VARCHAR</a-option>
+            <a-option value="INTEGER">INTEGER</a-option>
+            <a-option value="LONG">LONG</a-option>
+            <a-option value="FLOAT">FLOAT</a-option>
+            <a-option value="DATE">DATE</a-option>
+            <a-option value="TIME">TIME</a-option>
+            <a-option value="TIMESTAMP">TIMESTAMP</a-option>
+          </a-select>
+          <a-input v-model="p.value" placeholder="默认值" size="small" style="flex: 1;" />
+          <a-button type="text" status="danger" size="mini" @click="removeParam(i)">
+            <template #icon><icon-delete /></template>
+          </a-button>
+        </div>
+        <div class="params-tip">
+          提示：全局参数可在组件 SQL/脚本中通过 <code>${{'{'}}{'{'}参数名{'}'}{'}'}</code> 引用，运行时可覆盖默认值。
+        </div>
+      </div>
+    </a-drawer>
+
+    <!-- 运行时参数覆盖弹窗 -->
+    <a-modal
+      :visible="runParamsVisible"
+      title="运行参数"
+      @cancel="runParamsVisible = false"
+      @ok="confirmRunWithParams"
+      ok-text="确认运行"
+    >
+      <div class="run-params-body">
+        <p style="font-size: 13px; color: #86909C; margin-bottom: 12px;">以下参数可在运行时覆盖默认值：</p>
+        <div v-for="(p, i) in runParamsOverride" :key="i" class="param-row">
+          <span class="run-param-name">{{ p.prop }}</span>
+          <a-input v-model="p.value" placeholder="值" size="small" style="flex: 1;" />
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -407,4 +513,30 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
 .ver-item__meta { display: flex; gap: 12px; font-size: 12px; color: var(--color-text-tertiary); margin-top: 4px; }
 .ver-item__comment { font-size: 12px; color: var(--color-text-secondary); margin-top: 4px; }
 .ver-item__actions { margin-top: 6px; }
+
+/* 参数触发器 */
+.params-trigger {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid #E5E8ED; border-radius: 6px;
+  cursor: pointer; background: #FAFBFC; transition: all 0.15s;
+  white-space: nowrap;
+}
+.params-trigger:hover { border-color: #165DFF; background: #F2F7FF; }
+.params-text { font-size: 13px; color: #1D2129; }
+.params-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  font-size: 11px; font-weight: 600; color: #fff; background: #165DFF; border-radius: 9px;
+}
+
+/* 参数抽屉 */
+.params-drawer { padding: 4px 0; }
+.params-empty { text-align: center; color: var(--color-text-tertiary); padding: 32px 0; }
+.param-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.params-tip { margin-top: 16px; font-size: 12px; color: var(--color-text-tertiary); line-height: 1.6; }
+.params-tip code { background: #f2f3f5; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+
+/* 运行参数弹窗 */
+.run-params-body .param-row { margin-bottom: 8px; }
+.run-param-name { min-width: 100px; font-size: 13px; font-weight: 500; color: #1D2129; }
 </style>

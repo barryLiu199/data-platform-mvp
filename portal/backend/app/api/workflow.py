@@ -57,6 +57,7 @@ class WorkflowCreate(BaseModel):
     cron_expression: Optional[str] = None
     tags: Optional[List[str]] = None
     priority: Optional[int] = Field(default=3, ge=1, le=3)
+    params: Optional[List[dict]] = None
 
 class WorkflowUpdate(BaseModel):
     name: Optional[str] = None
@@ -67,6 +68,7 @@ class WorkflowUpdate(BaseModel):
     cron_expression: Optional[str] = None
     tags: Optional[List[str]] = None
     priority: Optional[int] = Field(default=None, ge=1, le=3)
+    params: Optional[List[dict]] = None
 
 
 def _serialize(w: Workflow, db: Session) -> dict:
@@ -133,6 +135,7 @@ def _serialize(w: Workflow, db: Session) -> dict:
         "status": w.status,
         "version": w.version,
         "priority": w.priority or 3,
+        "params": w.params_json or [],
         "last_run_status": w.last_run_status,
         "last_run_time": str(w.last_run_time) if w.last_run_time else None,
         "last_run_duration": w.last_run_duration,
@@ -209,6 +212,10 @@ async def _sync_to_ds(db: Session, w: Workflow) -> tuple:
     else:
         payload = translate_workflow(w, comp_map, task_codes, datasource_lookup=datasource_map)
 
+    # 工作流全局参数 → DS globalParams
+    import json as _json
+    global_params = _json.dumps(w.params_json or [], ensure_ascii=False)
+
     # 已存在 ds_process_code → 更新;否则创建
     if w.ds_process_code:
         # 先 offline 才能更新
@@ -217,6 +224,7 @@ async def _sync_to_ds(db: Session, w: Workflow) -> tuple:
             w.ds_process_code,
             payload["name"], payload["description"],
             payload["taskDefinitionJson"], payload["taskRelationJson"], payload["locations"],
+            global_params=global_params,
         )
         if not ok:
             raise HTTPException(status_code=502, detail="DS 更新 process-definition 失败")
@@ -225,6 +233,7 @@ async def _sync_to_ds(db: Session, w: Workflow) -> tuple:
         pd_code = await ds.save_process_definition(
             payload["name"], payload["description"],
             payload["taskDefinitionJson"], payload["taskRelationJson"], payload["locations"],
+            global_params=global_params,
         )
         if not pd_code:
             raise HTTPException(status_code=502, detail="DS 创建 process-definition 失败")
@@ -399,6 +408,7 @@ def create_workflow(
         status=STATUS_DRAFT,
         version=1,
         priority=req.priority or 3,
+        params_json=req.params or [],
         created_by=current_user.id,
     )
     db.add(w)
@@ -492,6 +502,8 @@ def update_workflow(
         w.cron_expression = updates["cron_expression"]
     if "priority" in updates:
         w.priority = updates["priority"]
+    if "params" in updates:
+        w.params_json = updates["params"] or []
     if "steps" in updates:
         steps_data = _validate_steps(db, [WorkflowStep(**s) for s in updates["steps"]])
         w.steps_json = steps_data
@@ -630,6 +642,7 @@ async def publish_workflow(
         steps_json=w.steps_json,
         cron_expression=w.cron_expression,
         priority=w.priority,
+        params_json=w.params_json,
         published_by=current_user.id,
     )
     db.add(ver)
@@ -669,9 +682,14 @@ async def offline_workflow(
     return {"message": "已下线 (DS 已同步)", **_serialize(w, db)}
 
 
+class RunWorkflowRequest(BaseModel):
+    params: Optional[Dict[str, str]] = None
+
+
 @router.post("/{wf_id}/run")
 async def run_workflow(
     wf_id: int,
+    body: RunWorkflowRequest = RunWorkflowRequest(),
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("workflow:write")),
 ):
@@ -684,7 +702,12 @@ async def run_workflow(
     if not w.ds_process_code:
         raise HTTPException(status_code=400, detail="工作流未同步到 DS,请先发布")
     ds = get_ds_client()
-    result = await ds.start_process_instance(w.ds_process_code)
+    # 构造 startParams: "key1=val1,key2=val2"
+    import json as _json
+    start_params = ""
+    if body.params:
+        start_params = _json.dumps(body.params, ensure_ascii=False)
+    result = await ds.start_process_instance(w.ds_process_code, start_params=start_params)
     if result is None:
         raise HTTPException(status_code=502, detail="DS 触发运行失败")
     return {

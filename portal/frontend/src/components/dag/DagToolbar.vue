@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ workflowName: string; status: string }>()
+defineProps<{ workflowName: string; status: string; dsProcessCode?: number | null }>()
 const emit = defineEmits<{
   (e: 'save'): void
   (e: 'test'): void
@@ -8,6 +8,7 @@ const emit = defineEmits<{
   (e: 'back'): void
   (e: 'autoLayout'): void
   (e: 'versions'): void
+  (e: 'complement'): void
 }>()
 
 const statusMap: Record<string, { text: string; color: string }> = {
@@ -36,6 +37,7 @@ const statusMap: Record<string, { text: string; color: string }> = {
       <button class="dag-toolbar__btn" @click="emit('test')">测试</button>
       <button class="dag-toolbar__btn dag-toolbar__btn--primary" @click="emit('publish')">发布</button>
       <button class="dag-toolbar__btn" @click="emit('run')">运行</button>
+      <button v-if="dsProcessCode" class="dag-toolbar__btn" @click="emit('complement')">补数</button>
     </div>
   </div>
 </template>

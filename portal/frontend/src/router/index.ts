@@ -73,6 +73,10 @@ const router = createRouter({
           meta: { title: '运行实例' },
         },
         {
+          path: 'ops/instances',
+          redirect: '/scheduler/history',
+        },
+        {
           path: 'alerts',
           name: 'Alerts',
           component: () => import('../views/AlertCenter.vue'),

@@ -129,6 +129,7 @@ class DSClient:
         self, name: str, description: str,
         task_definition_json: str, task_relation_json: str, locations: str,
         execution_type: str = "PARALLEL",
+        global_params: str = "[]",
     ) -> Optional[int]:
         """创建 DS Process Definition,返回 code"""
         pc = await self._discover_project()
@@ -141,7 +142,7 @@ class DSClient:
             "taskRelationJson": task_relation_json,
             "locations": locations,
             "executionType": execution_type,
-            "globalParams": "[]",
+            "globalParams": global_params,
             "timeout": 0,
         })
         if isinstance(data, dict):
@@ -152,6 +153,7 @@ class DSClient:
         self, code: int, name: str, description: str,
         task_definition_json: str, task_relation_json: str, locations: str,
         execution_type: str = "PARALLEL",
+        global_params: str = "[]",
     ) -> bool:
         """更新 DS Process Definition (需先 release=OFFLINE)"""
         pc = await self._discover_project()
@@ -165,7 +167,7 @@ class DSClient:
             "taskRelationJson": task_relation_json,
             "locations": locations,
             "executionType": execution_type,
-            "globalParams": "[]",
+            "globalParams": global_params,
             "timeout": 0,
             "releaseState": "OFFLINE",
         })
@@ -285,7 +287,7 @@ class DSClient:
         data = await self.delete(f"/projects/{pc}/schedules/{schedule_id}")
         return data is not None
 
-    async def start_process_instance(self, pd_code: int) -> Optional[dict]:
+    async def start_process_instance(self, pd_code: int, start_params: str = "") -> Optional[dict]:
         """手动启动一次工作流实例"""
         pc = await self._discover_project()
         if not pc:
@@ -295,7 +297,7 @@ class DSClient:
             "failureStrategy": "CONTINUE",
             "warningType": "NONE",
             "scheduleTime": "",
-            "startParams": "",
+            "startParams": start_params,
         })
 
     async def close(self):
