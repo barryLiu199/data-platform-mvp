@@ -1,138 +1,107 @@
 <template>
   <div class="ide-wrap">
     <!-- 左侧文件夹树 -->
-    <div class="ide-sidebar">
-      <div class="sidebar-header">
-        <span class="sidebar-title">组件开发</span>
-      </div>
-      <div class="sidebar-search">
-        <a-input v-model="searchKw" size="small" placeholder="搜索" allow-clear>
-          <template #prefix><icon-search /></template>
-        </a-input>
-      </div>
-      <div class="comp-tree">
-        <template v-for="grp in typeGroups" :key="grp.type">
-          <!-- 类型组标题 -->
-          <div
-            class="grp-header"
-            :class="{ 'drop-target': dragState.dropTargetId === grp.type && dragState.dropKind === 'group' }"
-            @click="toggleGrp(grp.type)"
-            @dragover.prevent="onDragOverGroup($event, grp.type)"
-            @drop.prevent="onDropGroup($event, grp.type)"
-          >
-            <span class="caret">{{ grpCollapsed[grp.type] ? "▸" : "▾" }}</span>
-            <span class="grp-label">{{ grp.label }}</span>
-            <span class="grp-count">{{ compCountByType(grp.type) }}</span>
-            <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建文件夹">
-              <span class="grp-action" @click.stop="startNewFolder(grp.type, null)">⊞</span>
-            </a-tooltip>
-            <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建组件">
-              <span class="grp-action" @click.stop="newBlankTab(grp.type as Language)">＋</span>
-            </a-tooltip>
-          </div>
+    <FileTreePanel
+      ref="treeRef"
+      title="组件开发"
+      :groups="TYPE_GROUPS_WITH_DATAX"
+      :components="components"
+      :folders="folders"
+      :active-id="activeTab?.componentId ?? null"
+      :node-class="getNodeClass"
+      :folder-class="getFolderClass"
+      :group-class="getGroupClass"
+      :node-draggable="(n) => renamingCompId !== n.id"
+      :folder-draggable="(n) => renamingFolderId !== n.id"
+      class="ide-sidebar"
+      @node-click="(n) => openComp(n.data)"
+      @node-contextmenu="showCompContextMenu"
+      @node-dragstart="onDragStart"
+      @node-dragend="onDragEnd"
+      @node-dragover="onDragOver"
+      @node-drop="onDrop"
+      @folder-contextmenu="showFolderContextMenu"
+      @folder-dragstart="onDragStart"
+      @folder-dragend="onDragEnd"
+      @folder-dragover="onDragOver"
+      @folder-drop="onDrop"
+      @group-dragover="onDragOverGroup"
+      @group-drop="onDropGroup"
+    >
+      <!-- 组头操作按钮 -->
+      <template #group-actions="{ group }">
+        <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建文件夹">
+          <span class="grp-action" @click.stop="startNewFolder(group.type, null)">⊞</span>
+        </a-tooltip>
+        <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建组件">
+          <span class="grp-action" @click.stop="newBlankTab(group.type as Language)">＋</span>
+        </a-tooltip>
+      </template>
 
-          <!-- 展开后的树节点（搜索时强制展开）-->
-          <template v-if="searchKw || !grpCollapsed[grp.type]">
-            <template v-for="node in flatTree(grp.type)" :key="node.nodeKey">
-              <!-- 文件夹行 -->
-              <div
-                v-if="node.kind === 'folder'"
-                :class="[
-                  'tree-node folder-node',
-                  { 'dragging': dragState.draggingId === node.id, 'drop-target': dragState.dropTargetId === node.id && dragState.dropKind === 'folder' }
-                ]"
-                :style="{ paddingLeft: `${14 + node.depth * 16}px` }"
-                :draggable="renamingFolderId !== node.id"
-                @contextmenu.prevent="showFolderContextMenu($event, node)"
-                @dragstart="onDragStart($event, node)"
-                @dragend="onDragEnd()"
-                @dragover.prevent="onDragOver($event, node)"
-                @drop.prevent="onDrop($event, node)"
-              >
-                <span class="node-toggle" @click="toggleFolder(node.id)">
-                  <span v-if="!folderCollapsed[node.id]" class="caret">▾</span>
-                  <span v-else class="caret">▸</span>
-                </span>
-                <span class="folder-icon">📁</span>
-                <span v-if="renamingFolderId !== node.id" class="node-name" @dblclick="startRename(node)">
-                  {{ node.name }}
-                </span>
-                <a-input
-                  v-else
-                  v-model="renameValue"
-                  size="mini"
-                  class="rename-input"
-                  @blur="submitRename(node.id)"
-                  @keyup.enter="submitRename(node.id)"
-                  @keyup.escape="renamingFolderId = null"
-                  @dragstart.stop.prevent
-                  ref="renameInputRef"
-                />
-                <span class="node-actions">
-                  <a-tooltip v-if="userStore.hasPermission('component:write') && node.depth < 3" content="新建子文件夹">
-                    <span class="node-action" @click.stop="startNewFolder(node.folderType, node.id)">⊞</span>
-                  </a-tooltip>
-                  <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建组件">
-                    <span class="node-action" @click.stop="newBlankTab(node.folderType as Language, node.id)">＋</span>
-                  </a-tooltip>
-                  <a-tooltip v-if="userStore.hasPermission('component:write')" content="删除文件夹">
-                    <span class="node-action danger" @click.stop="deleteFolder(node.id)">×</span>
-                  </a-tooltip>
-                </span>
-              </div>
+      <!-- 文件夹名称（支持重命名） -->
+      <template #folder-name="{ node }">
+        <span v-if="renamingFolderId !== node.id" class="ftp-name" @dblclick="startRename(node)">
+          {{ node.name }}
+        </span>
+        <a-input
+          v-else
+          v-model="renameValue"
+          size="mini"
+          class="rename-input"
+          @blur="submitRename(node.id)"
+          @keyup.enter="submitRename(node.id)"
+          @keyup.escape="renamingFolderId = null"
+          @dragstart.stop.prevent
+          ref="renameInputRef"
+        />
+      </template>
 
-              <!-- 组件行 -->
-              <div
-                v-else
-                :class="[
-                  'tree-node comp-node',
-                  {
-                    'comp-open': isTabActive(node.id),
-                    'dragging': dragState.draggingId === node.id,
-                    'drop-target': dragState.dropTargetId === node.id && dragState.dropKind === 'component',
-                    'drop-before': dragState.dropTargetId === node.id && dragState.dropPosition === 'before',
-                    'drop-after': dragState.dropTargetId === node.id && dragState.dropPosition === 'after'
-                  }
-                ]"
-                :style="{ paddingLeft: `${14 + node.depth * 16}px` }"
-                :draggable="renamingCompId !== node.id"
-                @click="openComp(node.data)"
-                @contextmenu.prevent="showCompContextMenu($event, node)"
-                @dragstart="onDragStart($event, node)"
-                @dragend="onDragEnd()"
-                @dragover.prevent="onDragOver($event, node)"
-                @drop.prevent="onDrop($event, node)"
-              >
-                <LangIcon :type="node.data.type" :size="18" />
-                <span v-if="renamingCompId !== node.id" class="node-name">
-                  <template v-if="node.data.type === 'datax' && node.data.config_json?.source_table">
-                    {{ node.data.config_json.source_table }} → {{ node.data.config_json.target_table }}
-                  </template>
-                  <template v-else>{{ node.name }}</template>
-                </span>
-                <a-input
-                  v-else
-                  v-model="renameCompValue"
-                  size="mini"
-                  class="rename-input"
-                  @blur="submitRenameComp(node.id)"
-                  @keyup.enter="submitRenameComp(node.id)"
-                  @keyup.escape="renamingCompId = null"
-                  @dragstart.stop.prevent
-                  ref="renameCompInputRef"
-                />
-                <a-tooltip :content="statusLabel(node.data.status)" position="right">
-                  <span
-                    class="status-dot-only"
-                    :style="{ background: statusColor(node.data.status) }"
-                  ></span>
-                </a-tooltip>
-              </div>
-            </template>
+      <!-- 文件夹操作按钮 -->
+      <template #folder-actions="{ node }">
+        <span class="node-actions">
+          <a-tooltip v-if="userStore.hasPermission('component:write') && node.depth < 3" content="新建子文件夹">
+            <span class="node-action" @click.stop="startNewFolder(node.folderType, node.id)">⊞</span>
+          </a-tooltip>
+          <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建组件">
+            <span class="node-action" @click.stop="newBlankTab(node.folderType as Language, node.id)">＋</span>
+          </a-tooltip>
+          <a-tooltip v-if="userStore.hasPermission('component:write')" content="删除文件夹">
+            <span class="node-action danger" @click.stop="deleteFolder(node.id)">×</span>
+          </a-tooltip>
+        </span>
+      </template>
+
+      <!-- 组件名称（支持重命名 + datax 特殊显示） -->
+      <template #comp-name="{ node }">
+        <span v-if="renamingCompId !== node.id" class="ftp-name">
+          <template v-if="node.data?.type === 'datax' && node.data?.config_json?.source_table">
+            {{ node.data.config_json.source_table }} → {{ node.data.config_json.target_table }}
           </template>
-        </template>
-      </div>
-    </div>
+          <template v-else>{{ node.name }}</template>
+        </span>
+        <a-input
+          v-else
+          v-model="renameCompValue"
+          size="mini"
+          class="rename-input"
+          @blur="submitRenameComp(node.id)"
+          @keyup.enter="submitRenameComp(node.id)"
+          @keyup.escape="renamingCompId = null"
+          @dragstart.stop.prevent
+          ref="renameCompInputRef"
+        />
+      </template>
+
+      <!-- 组件状态圆点 -->
+      <template #comp-suffix="{ node }">
+        <a-tooltip :content="statusLabel(node.data?.status)" position="right">
+          <span
+            class="status-dot-only"
+            :style="{ background: statusColor(node.data?.status) }"
+          ></span>
+        </a-tooltip>
+      </template>
+    </FileTreePanel>
 
     <!-- 右侧编辑区 -->
     <div class="ide-main">
@@ -303,10 +272,11 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import LangIcon from '../components/LangIcon.vue'
+import FileTreePanel from '../components/FileTreePanel.vue'
+import { TYPE_GROUPS_WITH_DATAX, type TreeNode } from '../composables/useFileTree'
 import { Message } from '@arco-design/web-vue'
 import {
-  IconPlus, IconSearch, IconDown, IconRight, IconPlayArrow, IconSave, IconUpload,
-  IconFolder, IconDelete, IconFolderAdd, IconFile,
+  IconPlus, IconPlayArrow, IconSave, IconUpload,
 } from '@arco-design/web-vue/es/icon'
 import CodeEditor from '../components/CodeEditor.vue'
 import ContextMenu from '../components/ContextMenu.vue'
@@ -339,13 +309,7 @@ interface Tab {
   dirty: boolean
 }
 
-const typeGroups = [
-  { type: 'sql',    label: 'SQL 查询' },
-  { type: 'python', label: 'Python 脚本' },
-  { type: 'shell',  label: 'Shell 脚本' },
-  { type: 'datax',  label: 'DataX 同步' },
-]
-
+const treeRef = ref<InstanceType<typeof FileTreePanel> | null>(null)
 
 const tabs = ref<Tab[]>([])
 const activeKey = ref('')
@@ -355,10 +319,6 @@ const components = ref<any[]>([])
 const datasources = ref<any[]>([])
 const folders = ref<any[]>([])  // flat list from API
 const projects = ref<any[]>([])
-const searchKw = ref('')
-
-const grpCollapsed = reactive<Record<string, boolean>>({ sql: false, python: false, shell: false, datax: false })
-const folderCollapsed = reactive<Record<number, boolean>>({})
 
 const editorRef = ref<any>(null)
 const running = ref(false)
@@ -405,79 +365,6 @@ const dragState = reactive({
 let tabSeq = 0
 function genKey() { return `tab-${++tabSeq}` }
 
-function compCountByType(type: string) {
-  return components.value.filter(c => c.type === type).length
-}
-
-// ---- 树结构 ----
-interface TreeNode {
-  nodeKey: string
-  kind: 'folder' | 'component'
-  id: number
-  name: string
-  depth: number
-  folderType: string
-  data?: any
-}
-
-function flatTree(type: string): TreeNode[] {
-  const kw = searchKw.value.toLowerCase()
-  const searching = !!kw
-  const typeFolders = folders.value.filter(f => f.type === type)
-  const validFolderIds = new Set(typeFolders.map(f => f.id))
-  const typeComps = components.value.filter(c => {
-    if (c.type !== type) return false
-    if (kw && !c.name.toLowerCase().includes(kw)) return false
-    return true
-  })
-
-  // 搜索时：递归判断文件夹是否包含匹配项（直接子组件 / 后代组件）
-  function folderHasMatch(folderId: number): boolean {
-    if (typeComps.some(c => c.folder_id === folderId)) return true
-    const subFolders = typeFolders.filter(f => f.parent_id === folderId)
-    return subFolders.some(sub => folderHasMatch(sub.id))
-  }
-
-  const result: TreeNode[] = []
-
-  function traverse(parentId: number | null, depth: number) {
-    // Child folders
-    const childFolders = typeFolders
-      .filter(f => (f.parent_id ?? null) === parentId)
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id)
-    for (const f of childFolders) {
-      // 搜索时只显示有匹配项的文件夹
-      if (searching && !folderHasMatch(f.id)) continue
-      result.push({ nodeKey: `f-${f.id}`, kind: 'folder', id: f.id, name: f.name, depth, folderType: type })
-      // 搜索时强制展开；否则按用户折叠状态
-      if (searching || !folderCollapsed[f.id]) {
-        traverse(f.id, depth + 1)
-      }
-    }
-    // Child components (orphaned components with invalid folder_id treated as root)
-    const childComps = typeComps.filter(c => {
-      const fid = c.folder_id ?? null
-      if (parentId === null) {
-        return fid === null || !validFolderIds.has(fid)
-      }
-      return fid === parentId
-    })
-    childComps.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || b.id - a.id)
-    for (const c of childComps) {
-      result.push({ nodeKey: `c-${c.id}`, kind: 'component', id: c.id, name: c.name, depth, folderType: type, data: c })
-    }
-  }
-
-  traverse(null, 0)
-  return result
-}
-
-function toggleGrp(type: string) { grpCollapsed[type] = !grpCollapsed[type] }
-function toggleFolder(id: number) { folderCollapsed[id] = !folderCollapsed[id] }
-
-function isTabOpen(compId: number) {
-  return tabs.value.some(t => t.componentId === compId)
-}
 function isTabActive(compId: number) {
   return activeTab.value?.componentId === compId
 }
@@ -1083,6 +970,29 @@ async function submitRenameComp(id: number) {
   }
 }
 
+// ---- 拖拽状态 CSS 映射 ----
+function getNodeClass(node: TreeNode) {
+  return {
+    'dragging': dragState.draggingId === node.id && dragState.dragKind === 'component',
+    'drop-target': dragState.dropTargetId === node.id && dragState.dropKind === 'component',
+    'drop-before': dragState.dropTargetId === node.id && dragState.dropPosition === 'before',
+    'drop-after': dragState.dropTargetId === node.id && dragState.dropPosition === 'after',
+  }
+}
+
+function getFolderClass(node: TreeNode) {
+  return {
+    'dragging': dragState.draggingId === node.id && dragState.dragKind === 'folder',
+    'drop-target': dragState.dropTargetId === node.id && dragState.dropKind === 'folder',
+  }
+}
+
+function getGroupClass(group: { type: string }) {
+  return {
+    'drop-target': dragState.dropTargetId === group.type && dragState.dropKind === 'group',
+  }
+}
+
 // ---- 拖拽 ----
 function onDragStart(e: DragEvent, node: TreeNode) {
   dragState.draggingId = node.id
@@ -1203,7 +1113,8 @@ async function onDrop(e: DragEvent, targetNode: TreeNode) {
 }
 
 /** 拖拽经过类型组标题：只允许同类型组件移回根目录 */
-function onDragOverGroup(e: DragEvent, groupType: string) {
+function onDragOverGroup(e: DragEvent, group: { type: string }) {
+  const groupType = group.type
   e.preventDefault()
   if (dragState.dragFolderType !== groupType) {
     e.dataTransfer!.dropEffect = 'none'
@@ -1226,7 +1137,8 @@ function onDragOverGroup(e: DragEvent, groupType: string) {
 }
 
 /** 组件拖到类型组标题 = 移到根目录 */
-async function onDropGroup(e: DragEvent, groupType: string) {
+async function onDropGroup(e: DragEvent, group: { type: string }) {
+  const groupType = group.type
   e.preventDefault()
   const dataStr = e.dataTransfer!.getData('application/json')
   if (!dataStr) return
@@ -1244,7 +1156,7 @@ async function onDropGroup(e: DragEvent, groupType: string) {
   dragState.dropPosition = null
 }
 
-function onDragEnd() {
+function onDragEnd(_e?: DragEvent, _node?: TreeNode) {
   dragState.draggingId = null
   dragState.dragKind = null
   dragState.dragFolderType = null
@@ -1305,161 +1217,17 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 .ide-wrap {
   display: flex;
   height: calc(100vh - 110px);
-  background: #fff;
+  background: var(--color-bg-surface);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-card);
 }
 
-/* ---- 左侧 ---- */
-.ide-sidebar {
-  width: 280px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background: #FAFBFC;
-  border-right: 1px solid #E5E6EB;
-}
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 16px;
-  border-bottom: 1px solid #E5E6EB;
-}
-.sidebar-title { font-size: 14px; font-weight: 600; color: #1D2129; }
-.sidebar-search { padding: 6px 10px; border-bottom: 1px solid #F2F3F5; }
+/* ---- 左侧（FileTreePanel 容器） ---- */
+.ide-sidebar { width: 280px; flex-shrink: 0; }
+.ide-sidebar :deep(.ftp) { height: 100%; }
 
-.comp-tree { flex: 1; overflow-y: auto; padding: 6px 0; }
-.comp-tree::-webkit-scrollbar { width: 6px; }
-.comp-tree::-webkit-scrollbar-thumb { background: #E5E6EB; border-radius: 3px; }
-.comp-tree::-webkit-scrollbar-thumb:hover { background: #C9CDD4; }
-
-/* 类型组标题 */
-.grp-header {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #4E5969;
-  cursor: pointer;
-  user-select: none;
-  border-radius: 4px;
-  margin: 1px 4px;
-  transition: background 0.15s;
-}
-.grp-header:hover { background: #F2F3F5; }
-.grp-label { flex: 1; }
-.grp-count {
-  font-size: 11px;
-  background: #E5E6EB;
-  color: #86909C;
-  padding: 0 6px;
-  height: 16px;
-  line-height: 16px;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-.grp-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  color: #86909C;
-  font-size: 14px;
-  flex-shrink: 0;
-  opacity: 0.6;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
-}
-.grp-header:hover .grp-action { opacity: 1; }
-.grp-action:hover { background: #FFFFFF; color: #2B5AED; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-.caret { font-size: 11px; color: #86909C; flex-shrink: 0; }
-
-/* 树节点通用 */
-.tree-node {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 26px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.15s, color 0.15s;
-  position: relative;
-  padding-right: 4px;
-}
-.tree-node:hover { background: #F2F3F5; }
-
-/* 文件夹节点 */
-.folder-node { color: #4E5969; font-weight: 500; }
-.folder-node:hover .node-actions { opacity: 1; }
-.folder-icon { font-size: 13px; color: #F7BA1E; flex-shrink: 0; }
-.node-toggle { display: flex; align-items: center; flex-shrink: 0; cursor: pointer; }
-.node-toggle:hover { color: #2B5AED; }
-
-/* 组件节点 */
-.comp-node { color: #1D2129; }
-.comp-node:hover { background: #EAF1FF; }
-.comp-node:hover .status-dot-only { opacity: 1; }
-.comp-node.comp-open {
-  background: linear-gradient(90deg, #EAF1FF 0%, #F0F5FF 100%);
-  color: #2B5AED;
-  font-weight: 500;
-  box-shadow: inset 3px 0 0 0 #2B5AED;
-}
-
-.node-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.comp-node :deep(.lang-icon) { flex-shrink: 0; order: -1; }
-.rename-input { flex: 1; height: 20px; font-size: 12px; }
-
-.node-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
-  flex-shrink: 0;
-  padding-right: 4px;
-}
-.node-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  color: #86909C;
-  font-size: 13px;
-  transition: background 0.15s, color 0.15s;
-}
-.node-action:hover { background: #FFFFFF; color: #2B5AED; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-.node-action.danger:hover { background: #FFECE8; color: #F53F3F; box-shadow: 0 1px 3px rgba(245,63,63,0.15); }
-
-
-
-/* 状态改为纯小圆点，hover 时通过 tooltip 显示文字 */
-.status-dot-only {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-right: 4px;
-  opacity: 0.7;
-  transition: opacity 0.15s;
-}
-/* 保留旧 status-tag 兼容性（不显示） */
-.status-tag {
-  display: none;
-}
-.status-dot-inline {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
+/* 右键菜单中的状态圆点 */
 .opt-dot {
   display: inline-block;
   width: 6px;
@@ -1468,8 +1236,8 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   margin-right: 8px;
   vertical-align: middle;
 }
-.opt-danger { color: #F53F3F !important; }
-.opt-danger:hover { background: #FFECE8 !important; }
+.opt-danger { color: var(--color-danger) !important; }
+.opt-danger:hover { background: var(--color-danger-light) !important; }
 
 /* ---- 右侧 ---- */
 .ide-main {
@@ -1486,7 +1254,7 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   align-items: center;
   justify-content: center;
   gap: 16px;
-  color: #86909C;
+  color: var(--color-text-tertiary);
 }
 .empty-hint { font-size: 14px; }
 
@@ -1495,8 +1263,8 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   display: flex;
   align-items: center;
   height: 38px;
-  background: #F7F8FA;
-  border-bottom: 1px solid #E5E6EB;
+  background: var(--color-bg-base);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -1518,13 +1286,13 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   white-space: nowrap;
   cursor: pointer;
   font-size: 13px;
-  color: #4E5969;
-  border-right: 1px solid #E5E6EB;
+  color: var(--color-text-secondary);
+  border-right: 1px solid var(--color-border);
   flex-shrink: 0;
   transition: background 0.1s;
 }
-.tab-item:hover { background: #EAF1FF; }
-.tab-item.active { background: #fff; color: #2B5AED; border-bottom: 2px solid #2B5AED; }
+.tab-item:hover { background: var(--color-primary-light); }
+.tab-item.active { background: var(--color-bg-surface); color: var(--color-primary); border-bottom: 2px solid var(--color-primary); }
 .tab-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .tab-close {
   width: 16px; height: 16px;
@@ -1532,10 +1300,10 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   text-align: center;
   border-radius: 50%;
   font-size: 14px;
-  color: #86909C;
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
 }
-.tab-close:hover { background: #F53F3F; color: #fff; }
+.tab-close:hover { background: var(--color-danger); color: var(--color-text-inverse); }
 
 .add-tab-btn { flex-shrink: 0; margin: 0 4px; }
 
@@ -1545,8 +1313,8 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-bottom: 1px solid #F2F3F5;
-  background: #fff;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-surface);
   flex-shrink: 0;
 }
 
@@ -1557,24 +1325,24 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 .result-panel {
   max-height: 360px;
   flex-shrink: 0;
-  border-top: 1px solid #E5E6EB;
+  border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--color-bg-surface);
 }
 .result-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 6px 14px;
-  border-bottom: 1px solid #F2F3F5;
-  background: #FAFBFC;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-base);
   font-size: 13px;
   flex-shrink: 0;
 }
-.result-info { font-size: 13px; color: #4E5969; }
-.ok-text { color: #00B42A; font-weight: 500; }
-.err-text { color: #F53F3F; font-weight: 500; }
+.result-info { font-size: 13px; color: var(--color-text-secondary); }
+.ok-text { color: var(--color-success); font-weight: 500; }
+.err-text { color: var(--color-danger); font-weight: 500; }
 .result-body { flex: 1; min-height: 0; overflow: auto; }
 .result-spin { display: flex; align-items: center; justify-content: center; padding: 40px; }
 .result-table { font-size: 12px; }
@@ -1582,30 +1350,9 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 .result-log {
   margin: 0; padding: 12px 14px;
   font-size: 12px;
-  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-family: var(--font-family-mono);
   white-space: pre-wrap; word-break: break-all; line-height: 1.6;
 }
-.log-ok { color: #1D2129; }
-.log-err { color: #F53F3F; }
-
-/* ---- 拖拽状态 ---- */
-.dragging {
-  opacity: 0.6;
-  background: #EAF1FF !important;
-}
-.drop-target {
-  background: #EAF1FF !important;
-  border-radius: 4px;
-}
-.folder-node.drop-target {
-  background: #EAF1FF !important;
-  box-shadow: inset 0 0 0 1px #2B5AED;
-}
-.comp-node.drop-target {
-  background: transparent !important;
-}
-.comp-node.drop-before {
-  box-shadow: inset 0 2px 0 0 #2B5AED;
-}
-/* drop-after 不显示线，因为等价于下一个节点的 drop-before */
+.log-ok { color: var(--color-text-primary); }
+.log-err { color: var(--color-danger); }
 </style>

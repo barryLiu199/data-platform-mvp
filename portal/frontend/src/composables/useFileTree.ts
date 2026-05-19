@@ -35,12 +35,23 @@ export const TYPE_GROUPS_WITH_DATAX: TypeGroup[] = [
 
 // ── flatTree composable ───────────────────────────────────────────────────
 
+export interface UseFileTreeOptions {
+  /** 初始是否折叠所有组（默认 false） */
+  defaultCollapsed?: boolean
+  /** 要包含的类型组（默认 TYPE_GROUPS_WITH_DATAX） */
+  groups?: TypeGroup[]
+}
+
 export function useFileTree(
   components: { value: any[] },
   folders: { value: any[] },
   searchKw: { value: string },
+  options?: UseFileTreeOptions,
 ) {
-  const grpCollapsed = reactive<Record<string, boolean>>({})
+  const groups = options?.groups ?? TYPE_GROUPS_WITH_DATAX
+  const grpCollapsed = reactive<Record<string, boolean>>(
+    Object.fromEntries(groups.map(g => [g.type, options?.defaultCollapsed ?? false]))
+  )
   const folderCollapsed = reactive<Record<number, boolean>>({})
 
   function toggleGrp(type: string) {
