@@ -69,7 +69,15 @@ class DSClient:
         cookies = {"sessionId": self._session_id}
         try:
             resp = await self._client.request(method, url, cookies=cookies, **kwargs)
-            result = resp.json()
+            # DS 有时返回 body 尾部带多余数据，用 json.loads 截取第一个完整 JSON
+            import json as _json
+            raw = resp.text
+            try:
+                result = _json.loads(raw)
+            except _json.JSONDecodeError:
+                # 尝试只解析到第一个完整的 } 结束
+                decoder = _json.JSONDecoder()
+                result, _ = decoder.raw_decode(raw)
             # 401 重认证
             if result.get("code") in (300, 190001) and retry:
                 self._session_id = None

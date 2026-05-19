@@ -189,6 +189,24 @@ async def _sync_to_ds(db: Session, w: Workflow) -> tuple:
 
     comps = db.query(Component).filter(Component.id.in_(comp_ids)).all()
     comp_map = {c.id: c for c in comps}
+
+    # DataX 组件: 如果 config_json 里有 sync_task_id 但没有 rawJson，动态生成
+    from app.models.sync_task import SyncTask
+    from app.core.datax_builder import build_for_sync_task
+    import json as _j
+    for c in comps:
+        if c.type == "datax":
+            cfg = c.config_json or {}
+            if not cfg.get("rawJson") and cfg.get("sync_task_id"):
+                task = db.query(SyncTask).filter(SyncTask.id == cfg["sync_task_id"]).first()
+                if task:
+                    src_ds = db.query(DataSource).filter(DataSource.id == task.source_id).first()
+                    tgt_ds = db.query(DataSource).filter(DataSource.id == task.target_id).first()
+                    if src_ds and tgt_ds:
+                        job = build_for_sync_task(task, src_ds, tgt_ds, mask_password=False)
+                        cfg["rawJson"] = _j.dumps(job, ensure_ascii=False)
+                        c.config_json = cfg
+
     # 数据源映射 (SQL 组件需要)
     ds_ids = set()
     for c in comps:
