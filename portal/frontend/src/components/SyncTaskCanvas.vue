@@ -277,7 +277,7 @@ import {
 import {
   getSyncTask, createSyncTask, updateSyncTask, previewSyncTaskUnsaved,
   getDatasources, getMetadataTables, getMetadataColumns,
-  generateDDL, executeDDL, setSyncTaskStatus,
+  generateDDL, executeDDL, setSyncTaskStatus, createComponent,
 } from '../api'
 import FieldMappingCanvas from './FieldMappingCanvas.vue'
 import { getSyncTaskStatus } from '../constants/status'
@@ -497,7 +497,21 @@ async function handleSave() {
       Message.success('任务已更新')
     } else {
       res = await createSyncTask(payload)
-      Message.success('任务已创建')
+      // 自动创建关联的 Component，让左侧文件树出现节点
+      try {
+        const comp: any = await createComponent({
+          name: form.name,
+          type: 'datax',
+          folder_id: null,
+          config_json: {
+            sync_task_id: res.id,
+            source_table: form.source_table,
+            target_table: form.target_table,
+          },
+        })
+        res._component = comp
+      } catch {}
+      Message.success('同步任务已创建')
     }
     emit('saved', res)
   } catch (e: any) {

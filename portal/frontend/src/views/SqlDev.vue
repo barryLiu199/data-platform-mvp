@@ -137,7 +137,7 @@
               <a-doption @click="newBlankTab('sql')">新建 SQL</a-doption>
               <a-doption @click="newBlankTab('python')">新建 Python</a-doption>
               <a-doption @click="newBlankTab('shell')">新建 Shell</a-doption>
-              <a-doption @click="wizardVisible = true">新建 DataX 同步</a-doption>
+              <a-doption @click="newBlankTab('datax')">新建 DataX 同步</a-doption>
             </template>
           </a-dropdown>
         </div>
@@ -147,7 +147,7 @@
           <SyncTaskCanvas
             :task-id="activeTab.syncTaskId ?? null"
             :projects="projects"
-            @saved="loadComponents"
+            @saved="onDataxSaved"
             style="flex: 1; overflow: auto;"
           />
         </template>
@@ -471,7 +471,12 @@ function openComp(c: any) {
 }
 
 function newBlankTab(lang: Language = 'sql', folderId?: number | null) {
-  if (lang === 'datax') { wizardVisible.value = true; return }
+  if (lang === 'datax') {
+    const key = genKey()
+    tabs.value.push({ key, name: '新建同步任务', code: '', language: 'datax', folderId: folderId ?? null, syncTaskId: null, dirty: false })
+    switchTab(key)
+    return
+  }
   const key = genKey()
   const names: Record<string, string> = { sql: 'Untitled SQL', python: 'Untitled Python', shell: 'Untitled Shell' }
   tabs.value.push({ key, name: names[lang] ?? 'Untitled', code: '', language: lang, folderId: folderId ?? null, dirty: false })
@@ -479,6 +484,20 @@ function newBlankTab(lang: Language = 'sql', folderId?: number | null) {
 }
 
 function switchTab(key: string) { activeKey.value = key; result.value = null }
+
+function onDataxSaved(res: any) {
+  // 新建时 res 包含 _component，需要更新当前 tab 的 syncTaskId/componentId
+  const tab = activeTab.value
+  if (res._component && tab) {
+    tab.syncTaskId = res.id
+    tab.componentId = res._component.id
+    const src = res.source_table || ''
+    const dst = res.target_table || ''
+    tab.name = src && dst ? `${src} → ${dst}` : (res.name || tab.name)
+    tab.dirty = false
+  }
+  loadComponents()
+}
 
 function closeTab(key: string) {
   const idx = tabs.value.findIndex(t => t.key === key)
@@ -917,12 +936,8 @@ async function onMenuSelect(key: string) {
     if (targetNode.kind === 'component') await doMoveComponent(targetNode.data.id, folderId)
   } else if (key.startsWith('new-')) {
     const lang = key.replace('new-', '') as Language
-    if (lang === 'datax') {
-      wizardVisible.value = true
-    } else {
-      const folderId = targetNode.kind === 'folder' ? targetNode.id : (targetNode.data?.folder_id ?? null)
-      newBlankTab(lang, folderId)
-    }
+    const folderId = targetNode.kind === 'folder' ? targetNode.id : (targetNode.data?.folder_id ?? null)
+    newBlankTab(lang, folderId)
   }
 }
 
