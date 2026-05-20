@@ -207,3 +207,17 @@ docker compose up -d --build
 - 后端 Dockerfile 启动用了 `--reload`（开发模式），生产应去掉
 - CORS 配置为 `["*"]`，COOKIE_SECURE=False（HTTP 环境）
 - REDIS_URL 和 DS_ADMIN_PASSWORD 未通过 docker-compose 注入，使用 config.py 默认值
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `barryLiu199/data-platform-mvp`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout — `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
