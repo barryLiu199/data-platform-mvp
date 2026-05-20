@@ -35,7 +35,7 @@ def _jdbc_url(ds: DataSource) -> str:
     """构造 JDBC URL"""
     t = (ds.type or "").lower()
     if t == "mysql":
-        return f"jdbc:mysql://{ds.host}:{ds.port}/{ds.database_name}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai"
+        return f"jdbc:mysql://{ds.host}:{ds.port}/{ds.database_name}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&autoReconnect=true&socketTimeout=600000&connectTimeout=60000"
     if t == "postgresql":
         return f"jdbc:postgresql://{ds.host}:{ds.port}/{ds.database_name}"
     if t == "oracle":

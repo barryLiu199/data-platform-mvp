@@ -16,6 +16,7 @@ from app.models.resource_access import SysResourceAccess  # noqa: F401
 from app.models.oauth_config import SysOAuthConfig  # noqa: F401
 from app.models.sys_config import SysConfig  # noqa: F401
 from app.models.sys_notify_channel import SysNotifyChannel  # noqa: F401
+from app.models.lineage import TableLineage  # noqa: F401
 
 # 创建表
 Base.metadata.create_all(bind=engine)

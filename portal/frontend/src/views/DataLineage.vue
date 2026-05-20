@@ -1,166 +1,331 @@
 <template>
   <div class="page">
-    <PageHeader title="数据血缘" description="自动解析组件代码，追踪数据流转关系">
+    <PageHeader title="数据血缘" description="以组件/任务为中心，追踪上下游表级数据流转">
       <template #actions>
-        <a-button @click="loadLineage" :loading="loading">
+        <a-button @click="handleRefresh" :loading="refreshing">
           <template #icon><icon-refresh /></template>
-          刷新
+          刷新血缘
         </a-button>
       </template>
     </PageHeader>
 
-    <div class="glass-card lineage-body" v-if="!loading && nodes.length">
-      <!-- 分层展示 -->
-      <div class="lineage-flow">
-        <div class="lineage-layer" v-if="sourceNodes.length">
-          <div class="layer-label">数据源层</div>
-          <div class="layer-items">
-            <div v-for="n in sourceNodes" :key="n.id" class="node source" :class="{ highlighted: highlighted.has(n.id) }" @click="highlight(n.id)">
-              <div class="node-name">{{ n.name }}</div>
-              <div class="node-meta">{{ n.datasource || '' }}</div>
-            </div>
-          </div>
-        </div>
+    <!-- 控制栏 -->
+    <div class="glass-card control-bar">
+      <a-select
+        v-model="entityType"
+        placeholder="实体类型"
+        style="width: 160px"
+        @change="onTypeChange"
+      >
+        <a-option value="component_sql">SQL 组件</a-option>
+        <a-option value="component_datax">DataX 组件</a-option>
+        <a-option value="sync_task">同步任务</a-option>
+        <a-option value="table">数据表</a-option>
+      </a-select>
 
-        <div class="arrow-group" v-if="sourceNodes.length && odsNodes.length">
-          <div class="arrow-line"></div>
-          <div class="arrow-label">DataX / SQL</div>
-          <div class="arrow-line"></div>
-        </div>
+      <a-select
+        v-model="entityId"
+        placeholder="选择实体"
+        style="width: 240px"
+        :loading="entitiesLoading"
+        allow-search
+        :disabled="!entityType"
+      >
+        <a-option v-for="e in entities" :key="e.id" :value="String(e.id)">
+          {{ e.name }}
+        </a-option>
+      </a-select>
 
-        <div class="lineage-layer" v-if="odsNodes.length">
-          <div class="layer-label">ODS 贴源层</div>
-          <div class="layer-items">
-            <div v-for="n in odsNodes" :key="n.id" class="node ods" :class="{ highlighted: highlighted.has(n.id) }" @click="highlight(n.id)">
-              <div class="node-badge ods-badge">ODS</div>
-              <div class="node-name">{{ n.name }}</div>
-            </div>
-          </div>
-        </div>
+      <a-select v-model="depth" placeholder="展开深度" style="width: 120px">
+        <a-option :value="1">1 层</a-option>
+        <a-option :value="2">2 层</a-option>
+        <a-option :value="3">3 层</a-option>
+      </a-select>
 
-        <div class="arrow-group" v-if="odsNodes.length && appNodes.length">
-          <div class="arrow-line"></div>
-          <div class="arrow-label">ETL / SQL</div>
-          <div class="arrow-line"></div>
-        </div>
+      <a-tooltip content="字段级血缘（即将上线）">
+        <a-switch v-model="fieldLevel" disabled size="small">
+          <template #checked>字段</template>
+          <template #unchecked>字段</template>
+        </a-switch>
+      </a-tooltip>
 
-        <div class="lineage-layer" v-if="appNodes.length">
-          <div class="layer-label">DW / ADS 应用层</div>
-          <div class="layer-items">
-            <div v-for="n in appNodes" :key="n.id" class="node app" :class="{ highlighted: highlighted.has(n.id) }" @click="highlight(n.id)">
-              <div class="node-badge app-badge">{{ n.name.startsWith('dim') ? 'DIM' : 'ADS' }}</div>
-              <div class="node-name">{{ n.name }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <a-button type="primary" @click="handleQuery" :loading="graphLoading" :disabled="!entityId">
+        <template #icon><icon-search /></template>
+        查询
+      </a-button>
+    </div>
 
-      <!-- 边列表 -->
-      <div class="edge-list" v-if="edges.length">
-        <div class="edge-title">血缘关系 ({{ edges.length }})</div>
-        <div class="edge-table">
-          <div v-for="(e, i) in edges" :key="i" class="edge-row">
-            <code class="edge-node">{{ e.source }}</code>
-            <span class="edge-arrow">→</span>
-            <code class="edge-node">{{ e.target }}</code>
-            <a-tag size="small" :color="e.type === 'DataX' ? 'purple' : 'blue'">{{ e.type }}</a-tag>
-            <span class="edge-task">{{ e.task_name }}</span>
-          </div>
-        </div>
+    <!-- 画布 -->
+    <div class="glass-card canvas-wrapper" v-if="flowNodes.length">
+      <VueFlow
+        v-model:nodes="flowNodes"
+        v-model:edges="flowEdges"
+        :nodes-connectable="false"
+        :edges-updatable="false"
+        :nodes-draggable="true"
+        fit-view-on-init
+        class="lineage-canvas"
+        @node-click="onNodeClick"
+        @pane-click="clearHighlight"
+      >
+        <template #node-lineage-table="nodeProps">
+          <LineageTableNode :data="nodeProps.data" />
+        </template>
+        <Background />
+        <Controls :show-fit-view="true" :show-interactive="false" />
+      </VueFlow>
+
+      <!-- 统计 -->
+      <div class="canvas-stats">
+        <a-tag size="small" color="blue">{{ graphStats.total_nodes }} 表</a-tag>
+        <a-tag size="small" color="cyan">{{ graphStats.total_edges }} 关系</a-tag>
+        <a-tag size="small" color="green">↑{{ graphStats.upstream_depth }} 层</a-tag>
+        <a-tag size="small" color="orange">↓{{ graphStats.downstream_depth }} 层</a-tag>
       </div>
     </div>
 
-    <div class="glass-card empty-card" v-else-if="!loading">
+    <!-- 空状态 -->
+    <div class="glass-card empty-card" v-else-if="!graphLoading && queried">
       <div class="empty-state">
         <p>暂无血缘数据</p>
-        <p class="text-muted">发布组件或创建同步任务后，系统将自动解析数据流转关系</p>
+        <p class="text-muted">该实体尚未解析到表级血缘关系，请先刷新血缘数据</p>
       </div>
     </div>
 
+    <!-- 初始引导 -->
+    <div class="glass-card empty-card" v-else-if="!graphLoading && !queried">
+      <div class="empty-state">
+        <p>选择一个实体开始探索血缘</p>
+        <p class="text-muted">从左侧下拉框选择组件、任务或表名，点击"查询"展示上下游数据流</p>
+      </div>
+    </div>
+
+    <!-- 加载中 -->
     <div class="glass-card loading-card" v-else>
-      <a-spin dot /><span class="text-muted" style="margin-left:8px">正在解析血缘...</span>
+      <a-spin dot /><span class="text-muted" style="margin-left:8px">正在构建血缘图...</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { IconRefresh } from '@arco-design/web-vue/es/icon'
+import { ref, onMounted } from 'vue'
+import { VueFlow } from '@vue-flow/core'
+import { Background } from '@vue-flow/background'
+import { Controls } from '@vue-flow/controls'
+import { IconRefresh, IconSearch } from '@arco-design/web-vue/es/icon'
+import { Message } from '@arco-design/web-vue'
 import PageHeader from '../components/PageHeader.vue'
-import { getMetadataLineage } from '../api'
+import LineageTableNode from '../components/lineage/LineageTableNode.vue'
+import { getLineageEntities, getLineageGraph, refreshLineage } from '../api'
 
-interface Node { id: string; name: string; datasource?: string; layer: string }
-interface Edge { source: string; target: string; type: string; task_name?: string }
+interface Entity { id: string | number; name: string; sub_type?: string; status?: string }
+interface FlowNode { id: string; type: string; position: { x: number; y: number }; data: any }
+interface FlowEdge { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string; label?: string; animated?: boolean; data?: any; style?: any }
 
-const loading = ref(false)
-const nodes = ref<Node[]>([])
-const edges = ref<Edge[]>([])
-const highlighted = ref<Set<string>>(new Set())
+// 控制栏状态
+const entityType = ref('')
+const entityId = ref('')
+const depth = ref(2)
+const fieldLevel = ref(false)
+const entities = ref<Entity[]>([])
+const entitiesLoading = ref(false)
 
-const sourceNodes = computed(() => nodes.value.filter(n => n.layer === 'source'))
-const odsNodes = computed(() => nodes.value.filter(n => n.layer === 'ods'))
-const appNodes = computed(() => nodes.value.filter(n => n.layer === 'app'))
+// 画布状态
+const flowNodes = ref<FlowNode[]>([])
+const flowEdges = ref<FlowEdge[]>([])
+const graphLoading = ref(false)
+const refreshing = ref(false)
+const queried = ref(false)
+const graphStats = ref({ total_nodes: 0, total_edges: 0, upstream_depth: 0, downstream_depth: 0 })
 
-function highlight(nodeId: string) {
-  const s = new Set<string>()
-  s.add(nodeId)
-  // 找上下游
-  for (const e of edges.value) {
-    if (e.source === nodeId) s.add(e.target)
-    if (e.target === nodeId) s.add(e.source)
-  }
-  highlighted.value = s
-}
+// 高亮
+const highlightedNodes = ref<Set<string>>(new Set())
 
-async function loadLineage() {
-  loading.value = true
-  highlighted.value = new Set()
+async function onTypeChange() {
+  entityId.value = ''
+  entities.value = []
+  if (!entityType.value) return
+
+  entitiesLoading.value = true
   try {
-    const res: any = await getMetadataLineage()
-    nodes.value = res?.nodes || []
-    edges.value = res?.edges || []
-  } catch { nodes.value = []; edges.value = [] }
-  loading.value = false
+    const res: any = await getLineageEntities(entityType.value)
+    entities.value = res || []
+  } catch { entities.value = [] }
+  entitiesLoading.value = false
 }
 
-onMounted(() => { loadLineage() })
+async function handleQuery() {
+  if (!entityId.value) return
+
+  // 把前端的 entityType 映射到后端的 entity_type
+  let backendType = entityType.value
+  if (backendType === 'component_sql' || backendType === 'component_datax') {
+    backendType = 'component'
+  }
+
+  graphLoading.value = true
+  queried.value = true
+  clearHighlight()
+
+  try {
+    const res: any = await getLineageGraph(backendType, entityId.value, {
+      depth: depth.value,
+      field_level: fieldLevel.value,
+    })
+    flowNodes.value = (res?.nodes || []).map((n: FlowNode) => ({
+      ...n,
+      data: { ...n.data, highlighted: false, dimmed: false },
+    }))
+    flowEdges.value = (res?.edges || []).map((e: FlowEdge) => ({
+      ...e,
+      style: {},
+    }))
+    graphStats.value = res?.stats || { total_nodes: 0, total_edges: 0, upstream_depth: 0, downstream_depth: 0 }
+  } catch {
+    flowNodes.value = []
+    flowEdges.value = []
+  }
+  graphLoading.value = false
+}
+
+async function handleRefresh() {
+  refreshing.value = true
+  try {
+    const res: any = await refreshLineage()
+    Message.success(`血缘刷新完成：${res.edges_created} 条关系，耗时 ${res.duration_ms}ms`)
+    // 刷新后如果已有查询条件，重新查询
+    if (entityId.value) await handleQuery()
+  } catch { /* axios 拦截器会提示 */ }
+  refreshing.value = false
+}
+
+// 全链路高亮
+function onNodeClick({ node }: { node: FlowNode }) {
+  const nodeId = node.id
+  const reachable = new Set<string>()
+  reachable.add(nodeId)
+
+  // BFS 上游
+  const upQueue = [nodeId]
+  while (upQueue.length) {
+    const cur = upQueue.shift()!
+    for (const e of flowEdges.value) {
+      if (e.target === cur && !reachable.has(e.source)) {
+        reachable.add(e.source)
+        upQueue.push(e.source)
+      }
+    }
+  }
+  // BFS 下游
+  const downQueue = [nodeId]
+  while (downQueue.length) {
+    const cur = downQueue.shift()!
+    for (const e of flowEdges.value) {
+      if (e.source === cur && !reachable.has(e.target)) {
+        reachable.add(e.target)
+        downQueue.push(e.target)
+      }
+    }
+  }
+
+  highlightedNodes.value = reachable
+
+  // 更新节点样式
+  flowNodes.value = flowNodes.value.map(n => ({
+    ...n,
+    data: { ...n.data, highlighted: reachable.has(n.id), dimmed: !reachable.has(n.id) },
+    style: reachable.has(n.id) ? {} : { opacity: 0.3 },
+  }))
+
+  // 更新边样式
+  const reachableEdges = new Set<string>()
+  for (const e of flowEdges.value) {
+    if (reachable.has(e.source) && reachable.has(e.target)) {
+      reachableEdges.add(e.id)
+    }
+  }
+  flowEdges.value = flowEdges.value.map(e => ({
+    ...e,
+    animated: reachableEdges.has(e.id),
+    style: reachableEdges.has(e.id)
+      ? { stroke: 'var(--color-primary)', strokeWidth: 2 }
+      : { opacity: 0.15 },
+  }))
+}
+
+function clearHighlight() {
+  if (!highlightedNodes.value.size) return
+  highlightedNodes.value = new Set()
+  flowNodes.value = flowNodes.value.map(n => ({
+    ...n,
+    data: { ...n.data, highlighted: false, dimmed: false },
+    style: {},
+  }))
+  flowEdges.value = flowEdges.value.map(e => ({
+    ...e,
+    animated: false,
+    style: {},
+  }))
+}
+
+onMounted(() => {
+  // 页面初始化不自动查询，等用户选择
+})
 </script>
 
 <style scoped>
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-.lineage-body { padding: var(--space-6); }
-.lineage-flow { display: flex; flex-direction: column; align-items: center; gap: 0; }
-.lineage-layer { width: 100%; text-align: center; }
-.layer-label { font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; font-weight: var(--font-weight-semibold); }
-.layer-items { display: flex; gap: var(--space-3); justify-content: center; flex-wrap: wrap; }
-
-.node {
-  background: var(--color-bg-surface); border: 1.5px solid var(--color-border); border-radius: var(--radius-lg);
-  padding: var(--space-3) 18px; min-width: 120px; text-align: center; cursor: pointer; transition: all 0.2s;
+.control-bar {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
-.node:hover { border-color: var(--color-primary-border); box-shadow: 0 2px 8px rgba(37,99,235,0.08); }
-.node.highlighted { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
-.node-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: var(--font-weight-semibold); margin-bottom: 6px; }
-.ods-badge { background: var(--color-success-light); color: var(--color-success); }
-.app-badge { background: var(--color-warning-light); color: var(--color-warning); }
-.node-name { font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--color-text-primary); font-family: var(--font-family-mono); }
-.node-meta { font-size: 10px; color: var(--color-text-tertiary); margin-top: 2px; }
 
-.arrow-group { display: flex; flex-direction: column; align-items: center; padding: var(--space-2) 0; }
-.arrow-line { width: 1.5px; height: 16px; background: linear-gradient(to bottom, var(--color-border), var(--color-primary)); }
-.arrow-label { font-size: 10px; color: var(--color-primary); background: var(--color-primary-light); padding: 2px 10px; border-radius: 10px; margin: var(--space-1) 0; font-weight: 500; }
+.canvas-wrapper {
+  padding: 0;
+  position: relative;
+  height: calc(100vh - 280px);
+  min-height: 400px;
+}
+.lineage-canvas {
+  width: 100%;
+  height: 100%;
+}
 
-.edge-list { margin-top: 28px; border-top: 1px solid var(--color-border-subtle); padding-top: var(--space-4); }
-.edge-title { font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); color: var(--color-text-primary); margin-bottom: 10px; }
-.edge-table { display: flex; flex-direction: column; gap: 6px; }
-.edge-row { display: flex; align-items: center; gap: var(--space-2); padding: 6px 10px; background: var(--color-bg-elevated); border-radius: var(--radius-sm); font-size: var(--font-size-xs); }
-.edge-node { font-family: var(--font-family-mono); color: var(--color-text-primary); }
-.edge-arrow { color: var(--color-text-tertiary); }
-.edge-task { color: var(--color-text-tertiary); font-size: 11px; margin-left: auto; }
+.canvas-stats {
+  position: absolute;
+  bottom: var(--space-3);
+  left: var(--space-3);
+  display: flex;
+  gap: var(--space-1);
+  z-index: 5;
+}
 
-.empty-card, .loading-card { padding: 60px 0; text-align: center; }
+.empty-card, .loading-card { padding: 80px 0; text-align: center; }
 .text-muted { color: var(--color-text-tertiary); }
 .empty-state { padding: var(--space-10) 0; text-align: center; }
+.empty-state p { margin: var(--space-2) 0; }
+</style>
+
+<style>
+/* Vue Flow 全局样式覆盖 — 不能 scoped */
+@import '@vue-flow/core/dist/style.css';
+@import '@vue-flow/core/dist/theme-default.css';
+@import '@vue-flow/controls/dist/style.css';
+
+.lineage-canvas .vue-flow__edge-path {
+  stroke: var(--color-border-strong);
+  stroke-width: 1.5;
+}
+.lineage-canvas .vue-flow__edge-textbg {
+  fill: var(--color-bg-surface);
+}
+.lineage-canvas .vue-flow__edge-text {
+  font-size: 11px;
+  fill: var(--color-text-secondary);
+}
 </style>

@@ -12,3 +12,13 @@ RUN apt-get update -qq \
  && ln -sf /usr/bin/python3 /usr/bin/python \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
+
+# 确保 java 和 python 在所有 shell 环境下可用
+# DS worker 以 sudo -u root -i 执行 shell 任务，需要 /etc/profile.d 生效
+RUN ln -sf /opt/java/openjdk/bin/java /usr/bin/java \
+ && echo 'export JAVA_HOME=/opt/java/openjdk' > /etc/profile.d/java.sh \
+ && echo 'export PATH=$JAVA_HOME/bin:$PATH' >> /etc/profile.d/java.sh \
+ && echo 'export DATAX_HOME=/opt/datax' > /etc/profile.d/datax.sh
+
+ENV JAVA_HOME=/opt/java/openjdk
+ENV DATAX_HOME=/opt/datax

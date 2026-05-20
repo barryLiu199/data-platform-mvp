@@ -18,6 +18,34 @@ def run_all_migrations():
     _migrate_sys_notify_channel_table()
     _migrate_alert_rule_channel_ids()
     _migrate_workflow_params()
+    _migrate_table_lineage()
+
+
+def _migrate_table_lineage():
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT TABLE_NAME FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'table_lineage'"
+        )).fetchall()
+        if not rows:
+            conn.execute(text("""
+                CREATE TABLE table_lineage (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    source_table VARCHAR(256) NOT NULL COMMENT '上游表名',
+                    target_table VARCHAR(256) NOT NULL COMMENT '下游表名',
+                    source_ds_id BIGINT NULL COMMENT '上游数据源ID',
+                    target_ds_id BIGINT NULL COMMENT '下游数据源ID',
+                    entity_type VARCHAR(32) NOT NULL COMMENT 'sync_task/component',
+                    entity_id BIGINT NOT NULL COMMENT '实体ID',
+                    entity_name VARCHAR(255) NULL COMMENT '实体名称',
+                    parse_type VARCHAR(32) NULL COMMENT 'datax/sql_ast/sql_regex',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_lineage_source (source_table),
+                    INDEX idx_lineage_target (target_table),
+                    INDEX idx_lineage_entity (entity_type, entity_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
 
 
 def _migrate_sync_task_columns():

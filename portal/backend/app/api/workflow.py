@@ -230,9 +230,18 @@ async def _sync_to_ds(db: Session, w: Workflow) -> tuple:
     else:
         payload = translate_workflow(w, comp_map, task_codes, datasource_lookup=datasource_map)
 
-    # 工作流全局参数 → DS globalParams
+    # 工作流全局参数 → DS globalParams (转换为 DS 期望格式)
     import json as _json
-    global_params = _json.dumps(w.params_json or [], ensure_ascii=False)
+    raw_params = w.params_json or []
+    ds_params = []
+    for p in raw_params:
+        ds_params.append({
+            "prop": p.get("key", p.get("prop", "")),
+            "direct": p.get("direct", "IN"),
+            "type": p.get("type", "VARCHAR"),
+            "value": p.get("value", ""),
+        })
+    global_params = _json.dumps(ds_params, ensure_ascii=False)
 
     # 已存在 ds_process_code → 更新;否则创建
     if w.ds_process_code:

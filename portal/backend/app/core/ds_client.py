@@ -72,6 +72,7 @@ class DSClient:
             # DS 有时返回 body 尾部带多余数据，用 json.loads 截取第一个完整 JSON
             import json as _json
             raw = resp.text
+            logger.info("DS raw response %s %s: %s", method, path, raw[:500])
             try:
                 result = _json.loads(raw)
             except _json.JSONDecodeError:

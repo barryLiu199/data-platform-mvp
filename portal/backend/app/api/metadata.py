@@ -647,3 +647,62 @@ def get_lineage(
     }
 
 
+# ===== 血缘 v2 =====
+
+@router.get("/lineage/entities")
+def get_lineage_entities(
+    type: str = Query(..., description="component_sql / component_datax / sync_task / table"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """返回实体列表供下拉框选择"""
+    from app.models.component import Component as Comp
+    from app.models.sync_task import SyncTask as ST
+    from app.models.lineage import TableLineage
+
+    if type == "component_sql":
+        rows = db.query(Comp).filter(Comp.type == "sql", Comp.status == "online").all()
+        return [{"id": r.id, "name": r.name, "sub_type": "sql", "status": r.status} for r in rows]
+    elif type == "component_datax":
+        rows = db.query(Comp).filter(Comp.type == "datax", Comp.status == "online").all()
+        return [{"id": r.id, "name": r.name, "sub_type": "datax", "status": r.status} for r in rows]
+    elif type == "sync_task":
+        rows = db.query(ST).filter(ST.status == "active").all()
+        return [{"id": r.id, "name": r.name, "status": r.status} for r in rows]
+    elif type == "table":
+        # 所有出现过的表名
+        src = db.query(TableLineage.source_table).distinct().all()
+        tgt = db.query(TableLineage.target_table).distinct().all()
+        tables = sorted(set(r[0] for r in src) | set(r[0] for r in tgt))
+        return [{"id": t, "name": t} for t in tables]
+    else:
+        raise HTTPException(400, f"不支持的实体类型: {type}")
+
+
+@router.get("/lineage/{entity_type}/{entity_id}")
+def get_lineage_graph(
+    entity_type: str,
+    entity_id: str,
+    depth: int = Query(2, ge=1, le=5),
+    field_level: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """以实体为中心构建血缘图，返回 Vue Flow nodes + edges"""
+    from app.core.lineage_service import build_lineage_graph
+
+    if entity_type not in ("component", "sync_task", "table"):
+        raise HTTPException(400, f"不支持的实体类型: {entity_type}")
+
+    eid = entity_id if entity_type == "table" else int(entity_id)
+    return build_lineage_graph(db, entity_type, eid, depth=depth)
+
+
+@router.post("/lineage/refresh")
+def refresh_lineage_api(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """全量刷新血缘数据"""
+    from app.core.lineage_service import refresh_lineage
+    return refresh_lineage(db)

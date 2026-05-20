@@ -85,6 +85,15 @@ export const suggestNaming = (q: string) => api.get('/word-roots/suggest', { par
 export const getMetadataStats = () => api.get('/metadata/stats')
 export const getMetadataLineage = () => api.get('/metadata/lineage')
 
+// Lineage v2 (血缘)
+export const getLineageEntities = (type: string) =>
+  api.get('/metadata/lineage/entities', { params: { type } })
+export const getLineageGraph = (
+  entityType: string, entityId: string | number,
+  params?: { depth?: number; field_level?: boolean }
+) => api.get(`/metadata/lineage/${entityType}/${entityId}`, { params })
+export const refreshLineage = () => api.post('/metadata/lineage/refresh')
+
 // Projects (同步任务分组)
 export const getProjects = (params?: any) => api.get('/projects', { params })
 export const getProject = (id: number) => api.get(`/projects/${id}`)

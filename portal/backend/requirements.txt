@@ -19,5 +19,6 @@ httpx==0.28.1
 docker==7.1.0
 croniter==2.0.1
 openpyxl==3.1.5
+sqlglot>=25.0.0
 pytest==8.3.4
 pytest-asyncio==0.24.0
