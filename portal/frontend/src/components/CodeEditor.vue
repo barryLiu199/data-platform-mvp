@@ -6,6 +6,7 @@
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import { format as sqlFormat } from 'sql-formatter'
 import { getMetadataTables, getMetadataColumns } from '../api'
 
 ;(self as any).MonacoEnvironment = {
@@ -306,7 +307,27 @@ function getSelectedText(): string {
   return editor.getModel()?.getValueInRange(sel) ?? ''
 }
 
-defineExpose({ getSelectedText })
+function formatDocument(): void {
+  if (!editor) return
+  const value = editor.getValue()
+  if (!value.trim()) return
+  try {
+    const formatted = sqlFormat(value, {
+      language: 'mysql',
+      tabWidth: 2,
+      keywordCase: 'upper',
+      linesBetweenQueries: 2,
+    })
+    suppressEmit = true
+    editor.setValue(formatted)
+    suppressEmit = false
+    emit('update:modelValue', formatted)
+  } catch {
+    // 格式化失败则静默忽略
+  }
+}
+
+defineExpose({ getSelectedText, formatDocument })
 </script>
 
 <style scoped>

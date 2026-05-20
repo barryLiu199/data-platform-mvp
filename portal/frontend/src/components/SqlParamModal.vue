@@ -54,8 +54,11 @@ const previewSql = computed(() => {
   let s = props.sql
   for (const p of props.params) {
     const val = localValues.value[p.prop] ?? ''
-    // 全局替换 ${param_name}
-    s = s.split('${' + p.prop + '}').join(val)
+    const needsQuote = ['VARCHAR', 'DATE', 'TIME', 'TIMESTAMP'].includes(p.type)
+    const quotedVal = needsQuote ? `'${val}'` : val
+    // 先替换 '${xxx}' 再替换裸 ${xxx}
+    s = s.split("'${" + p.prop + "}'").join(quotedVal)
+    s = s.split('${' + p.prop + '}').join(quotedVal)
   }
   return s
 })
@@ -139,8 +142,8 @@ function _formatDate(d: Date): string {
     <!-- 示例提示 -->
     <div class="param-example">
       <div class="param-example__title">使用示例</div>
-      <code class="param-example__code">SELECT * FROM orders WHERE dt = '${bizdate}' AND type = ${type}</code>
-      <div class="param-example__tip">日期/字符串类型请在 SQL 中用引号包裹，如 <code>'${bizdate}'</code></div>
+      <code class="param-example__code">SELECT * FROM orders WHERE dt = ${bizdate} AND type = ${type}</code>
+      <div class="param-example__tip">无需手动加引号 — DATE/VARCHAR 类型系统自动加，INTEGER 不加</div>
     </div>
 
     <!-- 参数列表 -->

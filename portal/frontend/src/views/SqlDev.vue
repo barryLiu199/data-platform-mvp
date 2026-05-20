@@ -165,6 +165,11 @@
             >
               <a-option v-for="ds in datasources" :key="ds.id" :value="ds.id">{{ ds.name }}</a-option>
             </a-select>
+            <a-tooltip v-if="activeTab.language === 'sql'" content="格式化 SQL" position="bottom">
+              <a-button size="small" @click="formatSQL">
+                <template #icon><icon-code-block /></template>
+              </a-button>
+            </a-tooltip>
             <div style="flex:1" />
             <a-space size="small">
               <a-button v-if="userStore.hasPermission('component:write')" size="small" type="primary" :loading="running" @click="runCode">
@@ -275,10 +280,10 @@
       <div v-if="activeTab" class="params-editor">
         <div class="params-example-card">
           <div class="params-example-title">使用示例</div>
-          <code class="params-example-code">SELECT * FROM orders WHERE dt = '${bizdate}' AND type = ${type}</code>
+          <code class="params-example-code">SELECT * FROM orders WHERE dt = ${bizdate} AND type = ${type}</code>
           <div class="params-example-tips">
             <span>1. 在 SQL 中用 <code>${参数名}</code> 引用参数</span>
-            <span>2. 日期/字符串类型请在 SQL 中加引号，如 <code>'${bizdate}'</code></span>
+            <span>2. 无需手动加引号，系统根据参数类型自动处理</span>
             <span>3. 点击"运行"时会自动弹窗填写参数值</span>
           </div>
         </div>
@@ -337,7 +342,7 @@ import FileTreePanel from '../components/FileTreePanel.vue'
 import { TYPE_GROUPS_WITH_DATAX, type TreeNode } from '../composables/useFileTree'
 import { Message } from '@arco-design/web-vue'
 import {
-  IconPlus, IconPlayArrow, IconSave, IconUpload, IconDelete,
+  IconPlus, IconPlayArrow, IconSave, IconUpload, IconDelete, IconCodeBlock,
 } from '@arco-design/web-vue/es/icon'
 import CodeEditor from '../components/CodeEditor.vue'
 import ContextMenu from '../components/ContextMenu.vue'
@@ -592,6 +597,12 @@ function onCodeChange(v: string) {
   if (tab) { tab.code = v; tab.dirty = true }
 }
 
+function formatSQL() {
+  editorRef.value?.formatDocument?.()
+  const tab = activeTab.value
+  if (tab) tab.dirty = true
+}
+
 // ---- 文件夹操作 ----
 function startNewFolder(type: string, parentId: number | null) {
   newFolderContext.value = { type, parentId }
@@ -788,10 +799,24 @@ async function onParamConfirm(values: Record<string, string>) {
   const tab = activeTab.value
   if (!tab) return
 
-  // 替换 SQL 中的 ${param_name}
+  // 构建参数类型映射
+  const typeMap = new Map<string, string>()
+  for (const p of paramModalParams.value) {
+    typeMap.set(p.prop, p.type)
+  }
+
+  // 替换 SQL 中的 ${param_name}，根据类型自动处理引号
+  // 先处理用户已手动加引号的情况 '${xxx}'，再处理裸 ${xxx}
   let sql = paramModalSql.value
   for (const [key, val] of Object.entries(values)) {
-    sql = sql.split('${' + key + '}').join(val)
+    const pType = typeMap.get(key) || 'VARCHAR'
+    const needsQuote = ['VARCHAR', 'DATE', 'TIME', 'TIMESTAMP'].includes(pType)
+    const quotedVal = needsQuote ? `'${val}'` : val
+
+    // 先替换已被引号包裹的 '${xxx}' → 直接用带引号的值（避免双引号）
+    sql = sql.split("'${" + key + "}'").join(quotedVal)
+    // 再替换裸 ${xxx} → 也加引号
+    sql = sql.split('${' + key + '}').join(quotedVal)
   }
 
   await executeSQL(tab, sql)
