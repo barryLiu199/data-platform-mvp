@@ -243,6 +243,8 @@ def build_lineage_graph(
     """以实体为中心构建血缘图，返回 Vue Flow nodes + edges"""
 
     # 1. 确定中心表集合
+    #    中心 = 该组件/任务的 target 表（INSERT INTO 的目标）
+    #    source 表属于上游，通过 BFS 自然展现
     center_tables: Set[str] = set()
 
     if entity_type == "table":
@@ -253,7 +255,6 @@ def build_lineage_graph(
             TableLineage.entity_id == int(entity_id),
         ).all()
         for r in rows:
-            center_tables.add(r.source_table)
             center_tables.add(r.target_table)
 
     if not center_tables:
