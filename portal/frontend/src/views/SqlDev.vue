@@ -273,8 +273,17 @@
       unmount-on-close
     >
       <div v-if="activeTab" class="params-editor">
+        <div class="params-example-card">
+          <div class="params-example-title">使用示例</div>
+          <code class="params-example-code">SELECT * FROM orders WHERE dt = '${'{'}bizdate{'}'}' AND type = ${'{'}type{'}'}</code>
+          <div class="params-example-tips">
+            <span>1. 在 SQL 中用 <code>${'{'}参数名{'}'}</code> 引用参数</span>
+            <span>2. 日期/字符串类型请在 SQL 中加引号，如 <code>'${'{'}bizdate{'}'}'</code></span>
+            <span>3. 点击"运行"时会自动弹窗填写参数值</span>
+          </div>
+        </div>
         <div class="params-hint">
-          定义组件运行时的参数，可在 SQL/脚本中使用 <code>${'{'}param_name{'}'}</code> 引用。
+          定义组件的参数及类型，运行时会自动检测并弹窗填写。
         </div>
         <div v-for="(p, idx) in (activeTab.localParams || [])" :key="idx" class="param-row">
           <a-input v-model="p.prop" placeholder="参数名" size="small" style="width: 120px;" />
@@ -310,6 +319,14 @@
       :projects="projects"
       @saved="loadComponents"
     />
+
+    <!-- 运行参数弹窗 -->
+    <SqlParamModal
+      v-model:visible="paramModalVisible"
+      :params="paramModalParams"
+      :sql="paramModalSql"
+      @confirm="onParamConfirm"
+    />
   </div>
 </template>
 
@@ -335,6 +352,8 @@ import {
 } from '../api'
 import SyncTaskCanvas from '../components/SyncTaskCanvas.vue'
 import SyncTaskWizard from '../components/SyncTaskWizard.vue'
+import SqlParamModal from '../components/SqlParamModal.vue'
+import type { ParamDef } from '../components/SqlParamModal.vue'
 import { useUserStore } from '../stores/user'
 
 const userStore = useUserStore()
@@ -380,6 +399,67 @@ function addParam() {
   if (!activeTab.value.localParams) activeTab.value.localParams = []
   activeTab.value.localParams.push({ prop: '', direct: 'IN', type: 'VARCHAR', value: '' })
   activeTab.value.dirty = true
+}
+
+// ---- 运行参数弹窗 ----
+const paramModalVisible = ref(false)
+const paramModalParams = ref<ParamDef[]>([])
+const paramModalSql = ref('')
+
+/**
+ * 从 SQL 中提取 ${xxx} 参数名（排除注释内的）
+ * 按出现顺序返回，去重
+ */
+function extractSqlParams(sql: string): string[] {
+  // 移除单行注释 -- 和块注释 /* */
+  const cleaned = sql
+    .replace(/--.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  const matches = cleaned.matchAll(/\$\{(\w+)\}/g)
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const m of matches) {
+    if (!seen.has(m[1])) {
+      seen.add(m[1])
+      result.push(m[1])
+    }
+  }
+  return result
+}
+
+/**
+ * 合并 SQL 中发现的参数和已定义的 localParams
+ * 按 SQL 中出现顺序排列，未在 SQL 中出现但已定义的参数追加在后
+ */
+function mergeParams(sqlParamNames: string[], localParams: Tab['localParams']): ParamDef[] {
+  const defMap = new Map<string, { type: string; value: string; direct: string }>()
+  for (const p of (localParams || [])) {
+    if (p.prop) defMap.set(p.prop, { type: p.type, value: p.value, direct: p.direct })
+  }
+
+  const result: ParamDef[] = []
+  const seen = new Set<string>()
+
+  // 按 SQL 出现顺序
+  for (const name of sqlParamNames) {
+    const def = defMap.get(name)
+    result.push({
+      prop: name,
+      type: def?.type || 'VARCHAR',
+      value: def?.value || '',
+      direct: def?.direct || 'IN',
+    })
+    seen.add(name)
+  }
+
+  // 追加已定义但未在 SQL 中出现的 IN 参数
+  for (const p of (localParams || [])) {
+    if (p.prop && !seen.has(p.prop) && p.direct === 'IN') {
+      result.push({ prop: p.prop, type: p.type, value: p.value, direct: p.direct })
+    }
+  }
+
+  return result
 }
 
 const saveModalVisible = ref(false)
@@ -651,10 +731,6 @@ async function confirmDeleteComp(c: any) {
   } catch {}
 }
 
-// ---- 运行 ----
-async function runCode() {
-  const tab = activeTab.value
-  if (!tab) return
 // Convert list-of-lists rows to list-of-objects for a-table
 function normalizeResult(res: any): any {
   if (res?.type === 'table' && Array.isArray(res.rows) && Array.isArray(res.columns)) {
@@ -666,20 +742,67 @@ function normalizeResult(res: any): any {
   return res
 }
 
-  result.value = null
-  if (tab.language === 'sql' && !tab.datasourceId) { Message.warning('请先选择数据源'); return }
-  running.value = true
-  try {
-    if (tab.language === 'sql') {
-      const sel: string = editorRef.value?.getSelectedText?.() ?? ''
-      const sql = (sel || tab.code).trim()
-      if (!sql) { Message.warning('请输入 SQL'); return }
-      result.value = normalizeResult(await runSqlAdhoc({ datasource_id: tab.datasourceId!, sql }))
-    } else {
-      if (!tab.componentId) { Message.warning('请先保存后再运行'); return }
+// ---- 运行 ----
+async function runCode() {
+  const tab = activeTab.value
+  if (!tab) return
+
+  if (tab.language === 'sql') {
+    if (!tab.datasourceId) { Message.warning('请先选择数据源'); return }
+    const sel: string = editorRef.value?.getSelectedText?.() ?? ''
+    const sql = (sel || tab.code).trim()
+    if (!sql) { Message.warning('请输入 SQL'); return }
+
+    // 提取 SQL 中的参数
+    const sqlParamNames = extractSqlParams(sql)
+    const merged = mergeParams(sqlParamNames, tab.localParams)
+
+    if (merged.length > 0) {
+      // 有参数 → 弹窗填值
+      paramModalSql.value = sql
+      paramModalParams.value = merged
+      paramModalVisible.value = true
+      return
+    }
+
+    // 无参数 → 直接执行
+    await executeSQL(tab, sql)
+  } else {
+    // Python/Shell 组件
+    if (!tab.componentId) { Message.warning('请先保存后再运行'); return }
+    result.value = null
+    running.value = true
+    try {
       if (tab.dirty) await doSave(tab)
       result.value = normalizeResult(await runComponentScript(tab.componentId!, tab.datasourceId))
+    } catch (e: any) {
+      result.value = { error: e?.response?.data?.detail || '执行失败' }
+    } finally {
+      running.value = false
     }
+  }
+}
+
+/** 参数弹窗确认后执行 */
+async function onParamConfirm(values: Record<string, string>) {
+  const tab = activeTab.value
+  if (!tab) return
+
+  // 替换 SQL 中的 ${param_name}
+  let sql = paramModalSql.value
+  for (const [key, val] of Object.entries(values)) {
+    sql = sql.split('${' + key + '}').join(val)
+  }
+
+  await executeSQL(tab, sql)
+}
+
+/** 实际执行 SQL */
+async function executeSQL(tab: Tab, sql: string) {
+  result.value = null
+  running.value = true
+  try {
+    result.value = normalizeResult(await runSqlAdhoc({ datasource_id: tab.datasourceId!, sql }))
   } catch (e: any) {
     result.value = { error: e?.response?.data?.detail || '执行失败' }
   } finally {
@@ -1429,7 +1552,46 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 
 /* 参数编辑器 */
 .params-editor { display: flex; flex-direction: column; gap: 12px; }
+.params-example-card {
+  padding: 12px 14px;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-md);
+}
+.params-example-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+  margin-bottom: 6px;
+}
+.params-example-code {
+  display: block;
+  padding: 6px 10px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+  color: var(--color-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+.params-example-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+.params-example-tips code {
+  background: var(--color-bg-base);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--font-family-mono);
+  font-size: 11px;
+}
 .params-hint { font-size: 12px; color: var(--color-text-tertiary); line-height: 1.6; padding: 10px 12px; background: var(--color-bg-elevated); border-radius: var(--radius-md); }
-.params-hint code { background: var(--color-bg-base); padding: 1px 4px; border-radius: 3px; font-family: var(--font-family-mono); font-size: 11px; }
 .param-row { display: flex; align-items: center; gap: 8px; }
 </style>
