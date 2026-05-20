@@ -139,8 +139,8 @@ function _formatDate(d: Date): string {
     <!-- 示例提示 -->
     <div class="param-example">
       <div class="param-example__title">使用示例</div>
-      <code class="param-example__code">SELECT * FROM orders WHERE dt = '${'{'}bizdate{'}'}' AND type = ${'{'}type{'}'}</code>
-      <div class="param-example__tip">日期/字符串类型请在 SQL 中用引号包裹，如 <code>'${'{'}bizdate{'}'}'</code></div>
+      <code class="param-example__code">SELECT * FROM orders WHERE dt = '${bizdate}' AND type = ${type}</code>
+      <div class="param-example__tip">日期/字符串类型请在 SQL 中用引号包裹，如 <code>'${bizdate}'</code></div>
     </div>
 
     <!-- 参数列表 -->

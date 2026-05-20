@@ -275,10 +275,10 @@
       <div v-if="activeTab" class="params-editor">
         <div class="params-example-card">
           <div class="params-example-title">使用示例</div>
-          <code class="params-example-code">SELECT * FROM orders WHERE dt = '${'{'}bizdate{'}'}' AND type = ${'{'}type{'}'}</code>
+          <code class="params-example-code">SELECT * FROM orders WHERE dt = '${bizdate}' AND type = ${type}</code>
           <div class="params-example-tips">
-            <span>1. 在 SQL 中用 <code>${'{'}参数名{'}'}</code> 引用参数</span>
-            <span>2. 日期/字符串类型请在 SQL 中加引号，如 <code>'${'{'}bizdate{'}'}'</code></span>
+            <span>1. 在 SQL 中用 <code>${参数名}</code> 引用参数</span>
+            <span>2. 日期/字符串类型请在 SQL 中加引号，如 <code>'${bizdate}'</code></span>
             <span>3. 点击"运行"时会自动弹窗填写参数值</span>
           </div>
         </div>
