@@ -14,6 +14,11 @@ const props = defineProps<{
 }>()
 
 const layerConfig = computed(() => {
+  // 中心节点用主色，让用户一眼识别
+  if (props.data.isCenter) {
+    const sub = props.data.layer === 'app' ? _appSubLabel(props.data.tableName) : props.data.layer?.toUpperCase() || 'TABLE'
+    return { label: sub, color: 'var(--color-primary)', bg: 'var(--color-primary-light)' }
+  }
   switch (props.data.layer) {
     case 'source': return { label: 'SOURCE', color: 'var(--color-accent)', bg: 'var(--color-accent-light)' }
     case 'ods': return { label: 'ODS', color: 'var(--color-success)', bg: 'var(--color-success-light)' }
@@ -74,7 +79,11 @@ function _appSubLabel(name: string): string {
 }
 .lineage-node--center {
   border-width: 3px;
-  box-shadow: var(--shadow-lg);
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2), var(--shadow-lg);
+}
+.lineage-node--center .lineage-node__badge::after {
+  content: ' ★';
 }
 
 .lineage-node__header {
