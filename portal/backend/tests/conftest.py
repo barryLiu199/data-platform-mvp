@@ -36,6 +36,7 @@ from app.core.database import Base
 # 导入所有模型，确保它们注册到 Base.metadata
 import app.models.component  # noqa: F401
 import app.models.component_folder  # noqa: F401
+import app.models.datasource  # noqa: F401
 import app.models.workflow  # noqa: F401
 import app.models.project  # noqa: F401
 import app.models.user  # noqa: F401

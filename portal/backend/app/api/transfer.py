@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -13,8 +13,15 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.permissions import require_permission
+from app.core.ds_ref import (
+    collect_datasource_manifest,
+    parameterize_config,
+    resolve_config,
+    validate_mapping,
+)
 from app.models.component import Component
 from app.models.component_folder import ComponentFolder
+from app.models.datasource import DataSource
 from app.models.workflow import Workflow
 from app.models.project import Project
 from app.models.user import SysUser
@@ -24,6 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/transfer", tags=["导入导出"])
 
 EXPORT_VERSION = "1.0"
+EXPORT_FORMAT_VERSION = "2.0"
 
 
 # ─── Request schemas ────────────────────────────────────────────────
@@ -61,13 +69,22 @@ def _deterministic_uuid(name: str, comp_type: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"component:{name}:{comp_type}"))
 
 
-def _serialize_component_for_export(db: Session, comp: Component) -> dict:
-    """Serialize a Component to the portable export format."""
+def _serialize_component_for_export(
+    db: Session, comp: Component, ds_name_map: Optional[dict[int, str]] = None,
+) -> dict:
+    """Serialize a Component to the portable export format.
+
+    If ds_name_map is provided (v2), datasource PKs are replaced with ${ds:name} refs.
+    """
+    cfg = comp.config_json or {}
+    if ds_name_map is not None:
+        cfg = parameterize_config(cfg, comp.type, ds_name_map)
+
     return {
         "uuid": _deterministic_uuid(comp.name, comp.type),
         "name": comp.name,
         "type": comp.type,
-        "config_json": comp.config_json or {},
+        "config_json": cfg,
         "folder_path": _build_folder_path(db, comp.folder_id),
         "status": comp.status,
         "version": comp.version,
@@ -133,8 +150,24 @@ def _ensure_folder_path(db: Session, folder_path: str, folder_type: str) -> Opti
     return parent_id
 
 
+def _resolve_item_config(
+    item: dict, ds_mapping: Optional[dict[str, int]],
+) -> dict:
+    """Resolve datasource refs in item config_json (v2 format)."""
+    cfg = item.get("config_json", {})
+    if ds_mapping is None:
+        return cfg
+    comp_type = item.get("type", "sql")
+    # 只处理含有 *_ref 字段的 v2 格式
+    has_refs = any(k.endswith("_ref") for k in cfg if k in ("datasource_ref", "source_ref", "target_ref"))
+    if not has_refs:
+        return cfg
+    return resolve_config(cfg, comp_type, ds_mapping)
+
+
 def _import_components(
     db: Session, items: list[dict], strategy: str, user_id: int,
+    ds_mapping: Optional[dict[str, int]] = None,
 ) -> dict:
     """Import component items. Returns {created, updated, skipped, errors, id_map}."""
     created = 0
@@ -148,6 +181,9 @@ def _import_components(
         comp_type = item.get("type", "sql")
         item_uuid = item.get("uuid", "")
         try:
+            # Resolve datasource refs for v2 format
+            resolved_config = _resolve_item_config(item, ds_mapping)
+
             # Ensure folder exists
             folder_id = _ensure_folder_path(db, item.get("folder_path", ""), comp_type)
 
@@ -161,7 +197,7 @@ def _import_components(
                     id_map[item_uuid] = existing.id
                     continue
                 elif strategy == "overwrite":
-                    existing.config_json = item.get("config_json", {})
+                    existing.config_json = resolved_config
                     existing.description = item.get("description", "")
                     existing.version = item.get("version", 1)
                     existing.status = item.get("status", "draft")
@@ -182,7 +218,7 @@ def _import_components(
             new_comp = Component(
                 name=name,
                 type=comp_type,
-                config_json=item.get("config_json", {}),
+                config_json=resolved_config,
                 description=item.get("description", ""),
                 version=item.get("version", 1),
                 status=item.get("status", "draft"),
@@ -208,23 +244,28 @@ def export_components(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("component:read")),
 ):
-    """导出组件为 JSON 文件"""
-    items = []
+    """导出组件为 JSON 文件（v2 参数化格式）"""
+    comps = []
     for comp_id in body.ids:
         comp = db.query(Component).filter(Component.id == comp_id).first()
         if not comp:
             logger.warning("Export: component id=%s not found, skipping", comp_id)
             continue
-        items.append(_serialize_component_for_export(db, comp))
+        comps.append(comp)
 
-    if not items:
+    if not comps:
         raise HTTPException(status_code=400, detail="未找到可导出的组件")
+
+    # 收集数据源清单
+    manifest, ds_name_map = collect_datasource_manifest(db, comps)
+    items = [_serialize_component_for_export(db, c, ds_name_map) for c in comps]
 
     now_str = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     payload = {
-        "version": EXPORT_VERSION,
+        "format_version": EXPORT_FORMAT_VERSION,
         "type": "component",
         "exported_at": now_str,
+        "datasources": manifest,
         "items": items,
         "metadata": {
             "source_project": "data-platform-mvp",
@@ -234,7 +275,7 @@ def export_components(
 
     filename = f"components_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
     return JSONResponse(
-        content=payload,
+        content=json.loads(json.dumps(payload, ensure_ascii=False, sort_keys=True)),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -245,24 +286,42 @@ def export_workflows(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("workflow:read")),
 ):
-    """导出工作流为 JSON 文件（含内联组件）"""
+    """导出工作流为 JSON 文件（v2 参数化格式，含内联组件）"""
     items = []
     all_comp_count = 0
 
+    # 先收集所有组件，统一构建数据源清单
+    all_comps: list[Component] = []
+    wf_list = []
     for wf_id in body.ids:
         wf = db.query(Workflow).filter(Workflow.id == wf_id).first()
         if not wf:
             logger.warning("Export: workflow id=%s not found, skipping", wf_id)
             continue
+        wf_list.append(wf)
+        comp_ids = _collect_workflow_component_ids(wf)
+        for cid in comp_ids:
+            comp = db.query(Component).filter(Component.id == cid).first()
+            if comp:
+                all_comps.append(comp)
 
-        # Collect inline components
+    if not wf_list:
+        raise HTTPException(status_code=400, detail="未找到可导出的工作流")
+
+    # 统一数据源清单
+    manifest, ds_name_map = collect_datasource_manifest(db, all_comps)
+
+    # 构建参数
+    all_params: dict = {}
+
+    for wf in wf_list:
         comp_ids = _collect_workflow_component_ids(wf)
         comp_id_to_uuid = _build_comp_id_to_uuid_map(db, comp_ids)
         inline_components = []
         for cid in comp_ids:
             comp = db.query(Component).filter(Component.id == cid).first()
             if comp:
-                inline_components.append(_serialize_component_for_export(db, comp))
+                inline_components.append(_serialize_component_for_export(db, comp, ds_name_map))
             else:
                 logger.warning("Export: component id=%s referenced by workflow '%s' not found", cid, wf.name)
         all_comp_count += len(inline_components)
@@ -285,6 +344,16 @@ def export_workflows(
             if proj:
                 project_name = proj.name
 
+        # Collect params
+        for p in (wf.params_json or []):
+            pname = p.get("prop") or p.get("name", "")
+            if pname and pname not in all_params:
+                all_params[pname] = {
+                    "type": p.get("type", "VARCHAR"),
+                    "default": p.get("value", ""),
+                    "description": p.get("desc", ""),
+                }
+
         wf_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"workflow:{wf.name}"))
         items.append({
             "uuid": wf_uuid,
@@ -299,14 +368,13 @@ def export_workflows(
             "components": inline_components,
         })
 
-    if not items:
-        raise HTTPException(status_code=400, detail="未找到可导出的工作流")
-
     now_str = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     payload = {
-        "version": EXPORT_VERSION,
+        "format_version": EXPORT_FORMAT_VERSION,
         "type": "workflow",
         "exported_at": now_str,
+        "datasources": manifest,
+        "parameters": all_params,
         "items": items,
         "metadata": {
             "source_project": "data-platform-mvp",
@@ -317,7 +385,7 @@ def export_workflows(
 
     filename = f"workflows_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
     return JSONResponse(
-        content=payload,
+        content=json.loads(json.dumps(payload, ensure_ascii=False, sort_keys=True)),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -326,10 +394,14 @@ def export_workflows(
 def import_bundle(
     file: UploadFile = File(...),
     strategy: str = Query("skip", pattern="^(skip|overwrite|rename)$"),
+    datasource_mapping: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("component:create")),
 ):
-    """导入 JSON 文件（组件或工作流）"""
+    """导入 JSON 文件（组件或工作流）。
+
+    v2 格式支持 datasource_mapping 参数（JSON 字符串），将导出中的数据源名映射到本地 PK。
+    """
     # Parse JSON
     try:
         raw = file.file.read()
@@ -344,10 +416,29 @@ def import_bundle(
     if bundle_type not in ("component", "workflow"):
         raise HTTPException(status_code=400, detail=f"不支持的导入类型: {bundle_type}")
 
+    # 检测格式版本
+    format_version = data.get("format_version") or data.get("version", "1.0")
+    is_v2 = format_version.startswith("2")
+
+    # 解析数据源映射
+    ds_mapping: Optional[dict[str, int]] = None
+    if is_v2 and datasource_mapping:
+        try:
+            ds_mapping = json.loads(datasource_mapping)
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="datasource_mapping 格式无效")
+
+        # 校验映射
+        manifest = data.get("datasources", {})
+        if manifest:
+            errors = validate_mapping(db, manifest, ds_mapping)
+            if errors:
+                raise HTTPException(status_code=400, detail=f"数据源映射校验失败: {'; '.join(errors)}")
+
     user_id = current_user.id
 
     if bundle_type == "component":
-        result = _import_components(db, data.get("items", []), strategy, user_id)
+        result = _import_components(db, data.get("items", []), strategy, user_id, ds_mapping)
         db.commit()
         return {
             "created": result["created"],
@@ -365,7 +456,7 @@ def import_bundle(
     for wf_item in data.get("items", []):
         # 1. Import inline components first
         inline_comps = wf_item.get("components", [])
-        comp_result = _import_components(db, inline_comps, strategy, user_id)
+        comp_result = _import_components(db, inline_comps, strategy, user_id, ds_mapping)
         total_created += comp_result["created"]
         total_updated += comp_result["updated"]
         total_skipped += comp_result["skipped"]
@@ -401,7 +492,7 @@ def import_bundle(
                     new_proj = Project(
                         name=project_name,
                         code=project_name.lower().replace(" ", "_"),
-                        description=f"由导入自动创建",
+                        description="由导入自动创建",
                     )
                     db.add(new_proj)
                     db.flush()
@@ -458,23 +549,97 @@ def import_bundle(
     }
 
 
+@router.post("/import/preview")
+def preview_import_bundle(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(require_permission("component:read")),
+):
+    """预览导入文件 — 返回条目列表（含冲突检测）和数据源清单。"""
+    try:
+        raw = file.file.read()
+        if len(raw) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="文件过大，最大支持 10MB")
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="无效的 JSON 文件")
+
+    bundle_type = data.get("type")
+    if bundle_type not in ("component", "workflow"):
+        raise HTTPException(status_code=400, detail=f"不支持的导入类型: {bundle_type}")
+
+    format_version = data.get("format_version") or data.get("version", "1.0")
+    preview_items: list[dict] = []
+
+    if bundle_type == "component":
+        for item in data.get("items", []):
+            name = item.get("name", "")
+            comp_type = item.get("type", "sql")
+            exists = db.query(Component).filter(
+                Component.name == name, Component.type == comp_type,
+            ).first() is not None
+            preview_items.append({
+                "name": name,
+                "type": comp_type,
+                "kind": "component",
+                "uuid": item.get("uuid", ""),
+                "status": "exists" if exists else "new",
+            })
+    else:
+        for wf_item in data.get("items", []):
+            # 工作流本身
+            wf_name = wf_item.get("name", "")
+            wf_exists = db.query(Workflow).filter(Workflow.name == wf_name).first() is not None
+            preview_items.append({
+                "name": wf_name,
+                "type": "workflow",
+                "kind": "workflow",
+                "uuid": wf_item.get("uuid", ""),
+                "status": "exists" if wf_exists else "new",
+            })
+            # 内联组件
+            for item in wf_item.get("components", []):
+                name = item.get("name", "")
+                comp_type = item.get("type", "sql")
+                exists = db.query(Component).filter(
+                    Component.name == name, Component.type == comp_type,
+                ).first() is not None
+                preview_items.append({
+                    "name": name,
+                    "type": comp_type,
+                    "kind": "component",
+                    "uuid": item.get("uuid", ""),
+                    "status": "exists" if exists else "new",
+                })
+
+    return {
+        "format_version": format_version,
+        "bundle_type": bundle_type,
+        "items": preview_items,
+        "datasources": data.get("datasources", {}),
+        "parameters": data.get("parameters", {}),
+    }
+
+
 @router.get("/export/components/{comp_id}/preview")
 def preview_component_export(
     comp_id: int,
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("component:read")),
 ):
-    """预览单个组件的导出 JSON"""
+    """预览单个组件的导出 JSON（v2 格式）"""
     comp = db.query(Component).filter(Component.id == comp_id).first()
     if not comp:
         raise HTTPException(status_code=404, detail="组件不存在")
 
+    manifest, ds_name_map = collect_datasource_manifest(db, [comp])
     now_str = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return {
-        "version": EXPORT_VERSION,
+        "format_version": EXPORT_FORMAT_VERSION,
         "type": "component",
         "exported_at": now_str,
-        "items": [_serialize_component_for_export(db, comp)],
+        "datasources": manifest,
+        "items": [_serialize_component_for_export(db, comp, ds_name_map)],
         "metadata": {
             "source_project": "data-platform-mvp",
             "component_count": 1,

@@ -236,10 +236,18 @@ export const exportComponents = (ids: number[]) =>
   api.post('/transfer/export/components', { ids })
 export const exportWorkflows = (ids: number[]) =>
   api.post('/transfer/export/workflows', { ids })
-export const importBundle = (file: File, strategy: string = 'skip') => {
+export const importBundle = (file: File, strategy: string = 'skip', datasourceMapping?: Record<string, number>) => {
   const fd = new FormData()
   fd.append('file', file)
+  if (datasourceMapping) {
+    fd.append('datasource_mapping', JSON.stringify(datasourceMapping))
+  }
   return api.post(`/transfer/import?strategy=${strategy}`, fd)
+}
+export const previewImportBundle = (file: File) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post('/transfer/import/preview', fd)
 }
 export const previewComponentExport = (id: number) =>
   api.get(`/transfer/export/components/${id}/preview`)
