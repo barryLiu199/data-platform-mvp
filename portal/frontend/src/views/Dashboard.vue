@@ -17,64 +17,67 @@
       <div v-for="(stat, i) in statCards" :key="i" class="stat-card glass-card" @click="$router.push(stat.path)">
         <div class="stat-color-bar" :style="{ background: stat.color }"></div>
         <div class="stat-body">
-          <div class="stat-label">{{ stat.label }}</div>
-          <div class="stat-value" :style="{ color: stat.color }">{{ stat.value }}</div>
-          <div class="stat-desc">{{ stat.desc }}</div>
+          <div class="stat-icon" :style="{ background: stat.iconBg }">
+            <component :is="stat.icon" :style="{ color: stat.color, fontSize: '18px' }" />
+          </div>
+          <div class="stat-content">
+            <div class="stat-label">{{ stat.label }}</div>
+            <div class="stat-value" :style="{ color: stat.color }">{{ stat.value }}</div>
+            <div class="stat-desc">{{ stat.desc }}</div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 昨日调度概览 -->
+    <!-- 调度概览 -->
     <div class="glass-card overview-section">
-      <h3 class="section-title">昨日调度概览</h3>
-      <div class="overview-grid">
+      <div class="section-header">
+        <h3 class="section-title">调度概览</h3>
+        <a-range-picker
+          v-model="overviewDateRange"
+          style="width: 260px"
+          format="YYYY-MM-DD"
+          @change="onDateChange"
+        />
+      </div>
+      <div class="overview-body">
+        <!-- 左：饼图 -->
         <div class="overview-chart">
-          <div class="donut-wrap">
-            <svg viewBox="0 0 120 120" class="donut-svg">
-              <circle cx="60" cy="60" r="50" fill="none" stroke="#F2F3F5" stroke-width="12"/>
-              <circle v-if="yesterdayData.total > 0" cx="60" cy="60" r="50" fill="none"
-                :stroke="yesterdayData.failure > 0 ? '#F53F3F' : '#00B42A'"
-                stroke-width="12" stroke-linecap="round"
-                :stroke-dasharray="donutDash" stroke-dashoffset="0"
-                transform="rotate(-90 60 60)"/>
-            </svg>
-            <div class="donut-center">
-              <div class="donut-number">{{ yesterdayData.total }}</div>
-              <div class="donut-label">总执行</div>
-            </div>
-          </div>
+          <SchedulePieChart :data="pieChartData" />
         </div>
-        <div class="overview-details">
-          <div class="detail-row">
-            <span class="dot success"></span>
-            <span class="detail-label">成功</span>
-            <span class="detail-value">{{ yesterdayData.success }}</span>
-          </div>
-          <div class="detail-row">
-            <span class="dot failure"></span>
-            <span class="detail-label">失败</span>
-            <span class="detail-value">{{ yesterdayData.failure }}</span>
-          </div>
-          <div class="detail-row">
-            <span class="dot pending"></span>
-            <span class="detail-label">待运行</span>
-            <span class="detail-value">{{ yesterdayData.pending }}</span>
-          </div>
-        </div>
-        <div class="overview-trend">
-          <div class="trend-title">近 7 日趋势</div>
-          <div class="trend-bars">
-            <div v-for="(v, i) in stats.workflow_trend" :key="i" class="trend-bar-wrap">
-              <div class="trend-bar" :style="{ height: trendHeight(v) + 'px', background: v > 0 ? '#2B5AED' : '#E5E8ED' }"></div>
-              <div class="trend-day">{{ trendLabel(i) }}</div>
+        <!-- 右：状态明细网格 -->
+        <div class="overview-detail-grid">
+          <div
+            v-for="item in pieChartData"
+            :key="item.key"
+            class="detail-card"
+          >
+            <div class="detail-dot" :style="{ background: item.color, boxShadow: `0 0 8px ${item.color}40` }"></div>
+            <div class="detail-info">
+              <div class="detail-count" :style="{ color: item.color }">{{ item.value }}</div>
+              <div class="detail-label">{{ item.name }}</div>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 最近运行 + 快捷操作 -->
-    <div class="content-grid">
+    <!-- 底部三栏：趋势 + 最近运行 + 快捷操作 -->
+    <div class="bottom-grid">
+      <!-- 7日趋势 -->
+      <div class="glass-card trend-section">
+        <h3 class="section-title">近 7 日趋势</h3>
+        <div class="trend-bars">
+          <div v-for="(v, i) in stats.workflow_trend" :key="i" class="trend-bar-wrap">
+            <div class="trend-bar" :style="{ height: trendHeight(v) + 'px' }">
+              <div class="trend-tooltip">{{ v }}</div>
+            </div>
+            <div class="trend-day">{{ trendLabel(i) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 最近运行 -->
       <div class="glass-card recent-section">
         <div class="section-header">
           <h3 class="section-title">最近运行</h3>
@@ -91,6 +94,7 @@
         <div v-else class="recent-empty">暂无运行记录</div>
       </div>
 
+      <!-- 快捷操作 -->
       <div class="glass-card quick-section">
         <h3 class="section-title">快捷操作</h3>
         <div class="quick-grid">
@@ -109,10 +113,12 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useUserStore } from '../stores/user'
-import { getDashboardStats, getDSInstances } from '../api'
+import { getDashboardStats, getDSInstances, getScheduleOverview } from '../api'
+import { EXECUTION_STATUS } from '../constants/status'
+import SchedulePieChart from '../components/SchedulePieChart.vue'
 import {
   IconLink, IconSync, IconCalendar, IconApps,
-  IconBranch, IconNotification,
+  IconBranch, IconNotification, IconCode,
 } from '@arco-design/web-vue/es/icon'
 import dayjs from 'dayjs'
 
@@ -131,37 +137,65 @@ const stats = reactive({
 
 const recentRuns = ref<any[]>([])
 
-const yesterdayData = computed(() => ({
-  total: stats.yesterday_runs,
-  success: stats.yesterday_success,
-  failure: stats.yesterday_failure,
-  pending: stats.yesterday_pending,
-}))
+// 调度概览
+const overviewDateRange = ref<string[]>([
+  dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+  dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+])
+const overviewCategories = ref<Array<{ name: string; key: string; count: number }>>([])
+const overviewTotal = ref(0)
 
-const donutDash = computed(() => {
-  const d = yesterdayData.value
-  if (d.total === 0) return '0 314'
-  const circumference = 2 * Math.PI * 50
-  const successLen = (d.success / d.total) * circumference
-  return `${successLen} ${circumference}`
-})
+// 状态 key → 颜色映射
+const STATUS_COLORS: Record<string, string> = {
+  success: EXECUTION_STATUS.SUCCESS.color,
+  submitted: EXECUTION_STATUS.SUBMITTED.color,
+  waiting: EXECUTION_STATUS.WAIT.color,
+  running: EXECUTION_STATUS.RUNNING.color,
+  failure: EXECUTION_STATUS.FAILURE.color,
+  stopped: EXECUTION_STATUS.STOP.color,
+}
+
+const pieChartData = computed(() =>
+  overviewCategories.value.map(c => ({
+    key: c.key,
+    name: c.name,
+    value: c.count,
+    color: STATUS_COLORS[c.key] || '#94A3B8',
+  }))
+)
+
+async function loadOverview() {
+  try {
+    const [startDate, endDate] = overviewDateRange.value
+    const res: any = await getScheduleOverview({
+      start_date: startDate,
+      end_date: endDate,
+    })
+    overviewCategories.value = res?.categories || []
+    overviewTotal.value = res?.total || 0
+  } catch {}
+}
+
+function onDateChange() {
+  loadOverview()
+}
 
 const statCards = computed(() => [
-  { label: '数据源', value: stats.datasource_total, desc: `${stats.datasource_active} 个可用`, color: 'var(--color-primary)', path: '/datasources' },
-  { label: '组件', value: stats.task_total, desc: `${stats.task_active} 个运行中`, color: 'var(--color-success)', path: '/sql-dev' },
-  { label: '工作流', value: stats.workflow_total, desc: '调度编排', color: 'var(--color-warning)', path: '/workflows' },
-  { label: '词根', value: stats.word_root_count, desc: '命名规范', color: 'var(--color-accent)', path: '/field-assets' },
-  { label: '昨日执行', value: stats.yesterday_runs, desc: stats.yesterday_failure > 0 ? `${stats.yesterday_failure} 个失败` : '全部成功', color: stats.yesterday_failure > 0 ? 'var(--color-danger)' : '#722ED1', path: '/scheduler/history' },
+  { label: '数据源', value: stats.datasource_total, desc: `${stats.datasource_active} 个可用`, color: 'var(--color-primary)', iconBg: 'var(--color-primary-light)', icon: IconLink, path: '/datasources' },
+  { label: '组件', value: stats.task_total, desc: `${stats.task_active} 个运行中`, color: 'var(--color-success)', iconBg: 'var(--color-success-light)', icon: IconCode, path: '/sql-dev' },
+  { label: '工作流', value: stats.workflow_total, desc: '调度编排', color: 'var(--color-warning)', iconBg: 'var(--color-warning-light)', icon: IconBranch, path: '/workflows' },
+  { label: '词根', value: stats.word_root_count, desc: '命名规范', color: 'var(--color-accent)', iconBg: 'var(--color-accent-light)', icon: IconApps, path: '/field-assets' },
+  { label: '昨日执行', value: stats.yesterday_runs, desc: stats.yesterday_failure > 0 ? `${stats.yesterday_failure} 个失败` : '全部成功', color: stats.yesterday_failure > 0 ? 'var(--color-danger)' : '#722ED1', iconBg: stats.yesterday_failure > 0 ? 'var(--color-danger-light)' : '#F5F3FF', icon: IconCalendar, path: '/scheduler/history' },
 ])
 
 function trendHeight(v: number) {
   const max = Math.max(...stats.workflow_trend, 1)
-  return Math.max(4, (v / max) * 48)
+  return Math.max(6, (v / max) * 80)
 }
 
 function trendLabel(i: number) {
   const d = dayjs().subtract(6 - i, 'day')
-  return d.format('dd')
+  return d.format('MM/DD')
 }
 
 const quickActions = [
@@ -215,6 +249,7 @@ onMounted(async () => {
     const res: any = await getDSInstances({ pageSize: 5, pageNo: 1 })
     recentRuns.value = res?.totalList?.slice(0, 5) || []
   } catch {}
+  loadOverview()
 })
 
 onUnmounted(() => {
@@ -223,71 +258,268 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.dashboard { max-width: 1200px; animation: fadeIn 0.3s ease-out; }
+.dashboard {
+  width: 100%;
+  animation: fadeIn 0.3s ease-out;
+}
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.welcome-banner { background: var(--color-bg-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-6) 28px; margin-bottom: var(--space-5); display: flex; justify-content: space-between; align-items: center; }
+
+/* ─── 欢迎横幅 ─── */
+.welcome-banner {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6) 28px;
+  margin-bottom: var(--space-5);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 .welcome-left { display: flex; align-items: stretch; gap: var(--space-4); }
 .welcome-accent { width: 4px; border-radius: 2px; background: linear-gradient(180deg, var(--color-primary), var(--color-accent)); }
 .welcome-title { margin: 0 0 4px; font-size: var(--font-size-xl); font-weight: var(--font-weight-semibold); color: var(--color-text-primary); }
 .welcome-desc { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-tertiary); }
 .welcome-time { font-size: var(--font-size-sm); color: var(--color-text-tertiary); font-family: var(--font-family-mono); }
-.stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: var(--space-5); }
-.stat-card { padding: 0; display: flex; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; overflow: hidden; }
-.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-.stat-color-bar { width: 4px; flex-shrink: 0; border-radius: var(--radius-lg) 0 0 var(--radius-lg); }
-.stat-body { padding: var(--space-4); flex: 1; }
-.stat-label { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-bottom: 6px; }
-.stat-value { font-size: 26px; font-weight: 700; line-height: 1.2; }
+
+/* ─── 统计卡片 ─── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-bottom: var(--space-5);
+}
+.stat-card {
+  padding: 0;
+  display: flex;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+}
+.stat-color-bar {
+  width: 4px;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+.stat-body {
+  padding: var(--space-4);
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.stat-content { flex: 1; min-width: 0; }
+.stat-label { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-bottom: 4px; }
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
 .stat-desc { font-size: 11px; color: var(--color-text-tertiary); margin-top: var(--space-1); }
-.overview-section { padding: var(--space-5); margin-bottom: var(--space-5); }
-.section-title { margin: 0 0 var(--space-4); font-size: 15px; font-weight: var(--font-weight-semibold); color: var(--color-text-primary); }
-.overview-grid { display: flex; gap: var(--space-8); align-items: center; }
-.donut-wrap { position: relative; width: 100px; height: 100px; }
-.donut-svg { width: 100%; height: 100%; }
-.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.donut-number { font-size: 22px; font-weight: 700; color: var(--color-text-primary); }
-.donut-label { font-size: 10px; color: var(--color-text-tertiary); }
-.overview-details { display: flex; flex-direction: column; gap: 10px; }
-.detail-row { display: flex; align-items: center; gap: var(--space-2); }
-.dot { width: 8px; height: 8px; border-radius: 50%; }
-.dot.success { background: var(--color-success); }
-.dot.failure { background: var(--color-danger); }
-.dot.pending { background: var(--color-warning); }
-.detail-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); min-width: 40px; }
-.detail-value { font-size: 15px; font-weight: var(--font-weight-semibold); color: var(--color-text-primary); }
-.overview-trend { flex: 1; margin-left: var(--space-6); }
-.trend-title { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-bottom: var(--space-2); }
-.trend-bars { display: flex; gap: var(--space-2); align-items: flex-end; height: 64px; }
-.trend-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); flex: 1; }
-.trend-bar { width: 100%; max-width: 32px; border-radius: 3px 3px 0 0; transition: height 0.3s; }
-.trend-day { font-size: 10px; color: var(--color-text-disabled); }
-.content-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: var(--space-4); margin-bottom: var(--space-5); }
-.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3); }
-.section-header .section-title { margin: 0; }
+
+/* ─── 调度概览 ─── */
+.overview-section { padding: var(--space-5) var(--space-6); margin-bottom: var(--space-5); }
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-5);
+}
+.section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.overview-body {
+  display: flex;
+  gap: var(--space-8);
+  align-items: center;
+}
+.overview-chart {
+  flex: 0 0 280px;
+}
+.overview-detail-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+.detail-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border-subtle);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.detail-card:hover {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-border);
+  transform: translateY(-1px);
+}
+.detail-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.detail-info { min-width: 0; }
+.detail-count {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.detail-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+/* ─── 底部三栏 ─── */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 0.8fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+/* ─── 趋势 ─── */
+.trend-section { padding: var(--space-5); }
+.trend-bars {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-end;
+  height: 120px;
+  padding-top: var(--space-4);
+}
+.trend-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+.trend-bar {
+  width: 100%;
+  max-width: 36px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--color-primary), var(--color-accent));
+  transition: height 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  min-height: 4px;
+}
+.trend-bar:hover {
+  opacity: 0.85;
+}
+.trend-tooltip {
+  display: none;
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-text-primary);
+  color: var(--color-text-inverse);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.trend-bar:hover .trend-tooltip { display: block; }
+.trend-day {
+  font-size: 10px;
+  color: var(--color-text-disabled);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── 最近运行 ─── */
 .recent-section { padding: var(--space-5); }
+.section-header .section-title { margin: 0; }
 .recent-list { display: flex; flex-direction: column; }
-.recent-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--color-border-subtle); }
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  transition: background 0.15s;
+}
 .recent-item:last-child { border-bottom: none; }
+.recent-item:hover { background: var(--color-bg-base); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: var(--radius-md); }
 .run-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.run-dot.success { background: var(--color-success); }
-.run-dot.failure { background: var(--color-danger); }
+.run-dot.success { background: var(--color-success); box-shadow: 0 0 6px rgba(22,163,74,0.4); }
+.run-dot.failure { background: var(--color-danger); box-shadow: 0 0 6px rgba(220,38,38,0.4); }
 .run-dot.running { background: var(--color-primary); animation: pulse 1.5s infinite; }
 .run-dot.pending { background: var(--color-warning); }
 .run-dot.unknown { background: var(--color-border-strong); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 .run-name { flex: 1; font-size: var(--font-size-sm); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.run-status { font-size: var(--font-size-xs); font-weight: 500; }
-.run-status.success { color: var(--color-success); }
-.run-status.failure { color: var(--color-danger); }
-.run-status.running { color: var(--color-primary); }
-.run-status.pending { color: var(--color-warning); }
-.run-time { font-size: 11px; color: var(--color-text-disabled); white-space: nowrap; }
+.run-status { font-size: var(--font-size-xs); font-weight: 500; padding: 2px 8px; border-radius: var(--radius-full); }
+.run-status.success { color: var(--color-success); background: var(--color-success-light); }
+.run-status.failure { color: var(--color-danger); background: var(--color-danger-light); }
+.run-status.running { color: var(--color-primary); background: var(--color-primary-light); }
+.run-status.pending { color: var(--color-warning); background: var(--color-warning-light); }
+.run-time { font-size: 11px; color: var(--color-text-disabled); white-space: nowrap; font-family: var(--font-family-mono); }
 .recent-empty { padding: var(--space-6) 0; text-align: center; color: var(--color-text-tertiary); font-size: var(--font-size-sm); }
+
+/* ─── 快捷操作 ─── */
 .quick-section { padding: var(--space-5); }
-.quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-.quick-item { display: flex; align-items: center; gap: 10px; padding: var(--space-3) 14px; border-radius: var(--radius-lg); cursor: pointer; transition: background 0.15s; }
-.quick-item:hover { background: var(--color-bg-elevated); }
-.quick-icon { width: 36px; height: 36px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; }
+.quick-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--space-3) 14px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.quick-item:hover { background: var(--color-bg-elevated); transform: translateX(2px); }
+.quick-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .quick-label { font-size: var(--font-size-sm); color: var(--color-text-primary); font-weight: 500; }
-@media (max-width: 1200px) { .stat-grid { grid-template-columns: repeat(3, 1fr); } .content-grid { grid-template-columns: 1fr; } }
+
+/* ─── 响应式 ─── */
+@media (max-width: 1400px) {
+  .bottom-grid { grid-template-columns: 1fr 1fr; }
+  .quick-section { grid-column: span 2; }
+  .quick-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 1200px) {
+  .stat-grid { grid-template-columns: repeat(3, 1fr); }
+  .bottom-grid { grid-template-columns: 1fr; }
+  .quick-section { grid-column: auto; }
+  .quick-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 768px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .overview-body { flex-direction: column; }
+  .overview-chart { flex: none; width: 100%; }
+  .overview-detail-grid { grid-template-columns: repeat(2, 1fr); }
+  .bottom-grid { grid-template-columns: 1fr; }
+  .quick-grid { grid-template-columns: repeat(2, 1fr); }
+}
 </style>

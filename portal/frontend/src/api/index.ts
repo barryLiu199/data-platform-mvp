@@ -38,6 +38,8 @@ export const getMyPermissions = () => api.get('/auth/me/permissions')
 
 // Dashboard
 export const getDashboardStats = () => api.get('/dashboard/stats')
+export const getScheduleOverview = (params?: { start_date?: string; end_date?: string }) =>
+  api.get('/dashboard/schedule-overview', { params })
 
 // DataSources
 export const getDatasources = (params?: any) => api.get('/datasources', { params })
