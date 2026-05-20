@@ -275,7 +275,8 @@ async function loadData() {
     const res: any = await getComponents(params)
     items.value = res?.items || []
     total.value = res?.total || 0
-  } catch {
+  } catch (e: any) {
+    console.warn('load failed', e)
     items.value = []
     total.value = 0
   }
@@ -286,7 +287,8 @@ async function loadDatasources() {
   try {
     const res: any = await getDatasources({ page: 1, page_size: 100 })
     datasources.value = res?.items || []
-  } catch {
+  } catch (e: any) {
+    console.warn('load failed', e)
     datasources.value = []
   }
 }
@@ -388,7 +390,7 @@ async function handleSave() {
     }
     editorVisible.value = false
     loadData()
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 
 function testComp(c: Comp) {
@@ -400,7 +402,7 @@ function testComp(c: Comp) {
         await testComponent(c.id)
         Message.success('测试通过')
         loadData()
-      } catch {}
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -414,7 +416,7 @@ function publishComp(c: Comp) {
         await publishComponent(c.id)
         Message.success('已发布')
         loadData()
-      } catch {}
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -428,7 +430,7 @@ function offlineComp(c: Comp) {
         await offlineComponent(c.id)
         Message.success('已下线')
         loadData()
-      } catch {}
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -441,7 +443,7 @@ function runComp(c: Comp) {
       try {
         await runComponent(c.id)
         Message.success('已触发运行')
-      } catch {}
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -455,7 +457,7 @@ function deleteComp(c: Comp) {
         await deleteComponent(c.id)
         Message.success('已删除')
         loadData()
-      } catch {}
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }

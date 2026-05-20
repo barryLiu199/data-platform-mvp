@@ -201,6 +201,9 @@ app.include_router(word_roots.router, prefix="/api")
 from app.api import admin
 app.include_router(admin.router, prefix="/api")
 
+from app.api import transfer
+app.include_router(transfer.router, prefix="/api")
+
 
 @app.get("/api/health")
 def health():

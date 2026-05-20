@@ -30,6 +30,10 @@
             <template #icon><icon-plus /></template>
             新建工作流
           </a-button>
+          <a-button @click="importModalVisible = true">
+            <template #icon><icon-upload /></template>
+            导入工作流
+          </a-button>
         </a-space>
       </template>
     </PageHeader>
@@ -120,6 +124,7 @@
                     <a-doption v-if="record.status === 'online' && record.schedule_status !== 'ONLINE'" @click="scheduleOn(record)">开启调度</a-doption>
                     <a-doption v-if="record.schedule_status === 'ONLINE'" @click="scheduleOff(record)">关闭调度</a-doption>
                     <a-doption v-if="record.ds_process_code" @click="openComplement(record)">补数</a-doption>
+                    <a-doption @click="doExportWorkflow(record)">导出</a-doption>
                     <a-doption :disabled="!canDelete(record)" @click="deleteWf(record)">删除</a-doption>
                   </template>
                 </a-dropdown>
@@ -146,6 +151,12 @@
       @update:visible="complementVisible = $event"
       @success="loadData"
     />
+
+    <!-- 导入工作流弹窗 -->
+    <ImportModal
+      v-model:visible="importModalVisible"
+      @imported="loadData"
+    />
   </div>
 </template>
 
@@ -153,12 +164,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message, Modal } from '@arco-design/web-vue'
-import { IconPlus } from '@arco-design/web-vue/es/icon'
+import { IconPlus, IconUpload } from '@arco-design/web-vue/es/icon'
 import PageHeader from '../components/PageHeader.vue'
 import FilterTabs from '../components/FilterTabs.vue'
 import StatusTag from '../components/StatusTag.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ComplementModal from '../components/ComplementModal.vue'
+import ImportModal from '../components/ImportModal.vue'
 import { getLifecycleStatus, getRunSymbol } from '../constants/status'
 import type { FilterTab } from '../components/FilterTabs.vue'
 import {
@@ -166,6 +178,7 @@ import {
   testWorkflow, publishWorkflow, offlineWorkflow, runWorkflow,
   scheduleWorkflowOnline, scheduleWorkflowOffline,
   getProjects,
+  exportWorkflows,
 } from '../api'
 import { relativeDate, formatDuration } from '../utils/time'
 
@@ -210,6 +223,7 @@ const projects = ref<ProjectItem[]>([])
 const complementVisible = ref(false)
 const complementWfName = ref('')
 const complementCode = ref(0)
+const importModalVisible = ref(false)
 const projectMap = computed(() => {
   const m: Record<number, ProjectItem> = {}
   for (const p of projects.value) m[p.id] = p
@@ -281,7 +295,7 @@ function testWf(w: Workflow) {
     title: '测试工作流',
     content: '将检查所有组件状态并触发试运行,确认?',
     onOk: async () => {
-      try { await testWorkflow(w.id); Message.success('测试通过'); loadData() } catch {}
+      try { await testWorkflow(w.id); Message.success('测试通过'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -291,7 +305,7 @@ function publishWf(w: Workflow) {
     title: '发布工作流',
     content: `「${w.name}」将发布上线,确认?`,
     onOk: async () => {
-      try { await publishWorkflow(w.id); Message.success('已发布'); loadData() } catch {}
+      try { await publishWorkflow(w.id); Message.success('已发布'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -301,7 +315,7 @@ function offlineWf(w: Workflow) {
     title: '下线工作流',
     content: `确认下线「${w.name}」?调度也会自动停止`,
     onOk: async () => {
-      try { await offlineWorkflow(w.id); Message.success('已下线'); loadData() } catch {}
+      try { await offlineWorkflow(w.id); Message.success('已下线'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -311,7 +325,7 @@ function runWf(w: Workflow) {
     title: '手动运行',
     content: `立即运行「${w.name}」?`,
     onOk: async () => {
-      try { await runWorkflow(w.id); Message.success('已触发运行'); loadData() } catch {}
+      try { await runWorkflow(w.id); Message.success('已触发运行'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -322,7 +336,7 @@ function scheduleOn(w: Workflow) {
     title: '开启调度',
     content: `按 CRON「${w.cron_expression}」开启自动调度?`,
     onOk: async () => {
-      try { await scheduleWorkflowOnline(w.id); Message.success('调度已开启'); loadData() } catch {}
+      try { await scheduleWorkflowOnline(w.id); Message.success('调度已开启'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -332,7 +346,7 @@ function scheduleOff(w: Workflow) {
     title: '关闭调度',
     content: `关闭「${w.name}」的自动调度?`,
     onOk: async () => {
-      try { await scheduleWorkflowOffline(w.id); Message.success('调度已关闭'); loadData() } catch {}
+      try { await scheduleWorkflowOffline(w.id); Message.success('调度已关闭'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -342,7 +356,7 @@ function deleteWf(w: Workflow) {
     title: '删除工作流',
     content: `确认删除「${w.name}」?该操作不可恢复`,
     onOk: async () => {
-      try { await deleteWorkflow(w.id); Message.success('已删除'); loadData() } catch {}
+      try { await deleteWorkflow(w.id); Message.success('已删除'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }
@@ -353,11 +367,30 @@ function openComplement(w: Workflow) {
   complementVisible.value = true
 }
 
+function downloadJson(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function doExportWorkflow(w: Workflow) {
+  try {
+    const res: any = await exportWorkflows([w.id])
+    downloadJson(new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' }), `${w.name || 'workflow'}.json`)
+    Message.success('导出成功')
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '导出失败')
+  }
+}
+
 onMounted(async () => {
   try {
     const res: any = await getProjects()
     projects.value = res?.items || []
-  } catch {}
+  } catch (e: any) { console.warn('load failed', e) }
   loadData()
 })
 </script>

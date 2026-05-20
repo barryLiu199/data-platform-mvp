@@ -169,7 +169,7 @@ async function handleSubmit() {
     if (editingId.value) { await updateDatasource(editingId.value, form); Message.success('更新成功') }
     else { await createDatasource(form); Message.success('创建成功') }
     modalVisible.value = false; loadData()
-  } catch {} finally { submitLoading.value = false }
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') } finally { submitLoading.value = false }
 }
 
 async function handleTest(record: any) {
@@ -178,11 +178,11 @@ async function handleTest(record: any) {
     if (res.status === 1) Message.success(res.message)
     else Message.warning(res.message)
     loadData()
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 
 async function handleDelete(id: number) {
-  try { await deleteDatasource(id); Message.success('删除成功'); loadData() } catch {}
+  try { await deleteDatasource(id); Message.success('删除成功'); loadData() } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 </script>
 

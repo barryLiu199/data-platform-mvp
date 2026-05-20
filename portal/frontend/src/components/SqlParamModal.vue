@@ -1,12 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-
-export interface ParamDef {
-  prop: string
-  type: string
-  value: string
-  direct?: string
-}
+import { substituteSqlParams, QUOTED_TYPES } from '../utils/sqlParams'
+export type { ParamDef } from '../utils/sqlParams'
+import type { ParamDef } from '../utils/sqlParams'
 
 const props = defineProps<{
   visible: boolean
@@ -51,16 +47,9 @@ watch(() => props.visible, (v) => {
 
 // 预览替换后的 SQL
 const previewSql = computed(() => {
-  let s = props.sql
-  for (const p of props.params) {
-    const val = localValues.value[p.prop] ?? ''
-    const needsQuote = ['VARCHAR', 'DATE', 'TIME', 'TIMESTAMP'].includes(p.type)
-    const quotedVal = needsQuote ? `'${val}'` : val
-    // 先替换 '${xxx}' 再替换裸 ${xxx}
-    s = s.split("'${" + p.prop + "}'").join(quotedVal)
-    s = s.split('${' + p.prop + '}').join(quotedVal)
-  }
-  return s
+  const typeMap = new Map<string, string>()
+  for (const p of props.params) typeMap.set(p.prop, p.type)
+  return substituteSqlParams(props.sql, localValues.value, typeMap)
 })
 
 const showPreview = ref(false)
@@ -187,7 +176,8 @@ function _formatDate(d: Date): string {
           <!-- INTEGER / LONG -->
           <template v-else-if="p.type === 'INTEGER' || p.type === 'LONG'">
             <a-input-number
-              v-model="localValues[p.prop]"
+              :model-value="Number(localValues[p.prop]) || 0"
+              @update:model-value="(v: number | undefined) => localValues[p.prop] = String(v ?? 0)"
               style="width: 100%"
               :precision="0"
               placeholder="请输入整数"
@@ -197,7 +187,8 @@ function _formatDate(d: Date): string {
           <!-- FLOAT / DOUBLE -->
           <template v-else-if="p.type === 'FLOAT' || p.type === 'DOUBLE'">
             <a-input-number
-              v-model="localValues[p.prop]"
+              :model-value="Number(localValues[p.prop]) || 0"
+              @update:model-value="(v: number | undefined) => localValues[p.prop] = String(v ?? 0)"
               style="width: 100%"
               :precision="4"
               placeholder="请输入数值"

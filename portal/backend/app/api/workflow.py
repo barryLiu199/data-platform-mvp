@@ -1,4 +1,5 @@
 from typing import Optional, List, Dict, Any
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -8,11 +9,12 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.permissions import get_accessible_ids, check_resource_permission, require_permission
 from app.core.ds_client import get_ds_client
-from app.core.dsl_translator import translate_workflow, translate_workflow_dag
+from app.core.workflow_publisher import WorkflowPublisher
 from app.models.workflow import Workflow, WorkflowVersion
 from app.models.component import Component
-from app.models.datasource import DataSource
 from app.models.user import SysUser
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workflows", tags=["工作流"])
 
@@ -170,114 +172,6 @@ def _validate_steps(db: Session, steps: List[WorkflowStep]) -> List[Dict[str, An
     return out
 
 
-async def _sync_to_ds(db: Session, w: Workflow) -> tuple:
-    """把 workflow 翻译并同步到 DS（支持 DAG 和线性两种模式）"""
-    # 确定节点数量和组件列表
-    if w.dag_json and w.dag_json.get("nodes"):
-        dag_nodes = w.dag_json["nodes"]
-        active_nodes = [n for n in dag_nodes if not n.get("skip", False)]
-        if not active_nodes:
-            raise HTTPException(status_code=400, detail="DAG 中没有可执行的节点（全部被跳过）")
-        comp_ids = [n["component_id"] for n in active_nodes]
-        node_count = len(active_nodes)
-    else:
-        steps = w.steps_json or []
-        if not steps:
-            raise HTTPException(status_code=400, detail="工作流为空")
-        comp_ids = [s.get("component_id") for s in steps]
-        node_count = len(steps)
-
-    comps = db.query(Component).filter(Component.id.in_(comp_ids)).all()
-    comp_map = {c.id: c for c in comps}
-
-    # DataX 组件: 如果 config_json 里有 sync_task_id 但没有 rawJson，动态生成
-    from app.models.sync_task import SyncTask
-    from app.core.datax_builder import build_for_sync_task
-    import json as _j
-    for c in comps:
-        if c.type == "datax":
-            cfg = c.config_json or {}
-            if not cfg.get("rawJson") and cfg.get("sync_task_id"):
-                task = db.query(SyncTask).filter(SyncTask.id == cfg["sync_task_id"]).first()
-                if task:
-                    src_ds = db.query(DataSource).filter(DataSource.id == task.source_id).first()
-                    tgt_ds = db.query(DataSource).filter(DataSource.id == task.target_id).first()
-                    if src_ds and tgt_ds:
-                        job = build_for_sync_task(task, src_ds, tgt_ds, mask_password=False)
-                        cfg["rawJson"] = _j.dumps(job, ensure_ascii=False)
-                        c.config_json = cfg
-
-    # 数据源映射 (SQL 组件需要)
-    ds_ids = set()
-    for c in comps:
-        cfg = c.config_json or {}
-        if cfg.get("datasource_id"):
-            ds_ids.add(cfg["datasource_id"])
-    datasource_map = {}
-    if ds_ids:
-        dss = db.query(DataSource).filter(DataSource.id.in_(list(ds_ids))).all()
-        datasource_map = {d.id: d for d in dss}
-
-    ds = get_ds_client()
-    task_codes = await ds.gen_task_codes(node_count)
-    if not task_codes or len(task_codes) < node_count:
-        raise HTTPException(status_code=502, detail="DS 生成 task code 失败")
-    task_codes = [int(x) for x in task_codes[:node_count]]
-
-    # 选择翻译模式
-    if w.dag_json and w.dag_json.get("nodes"):
-        payload = translate_workflow_dag(w, comp_map, task_codes, datasource_lookup=datasource_map)
-    else:
-        payload = translate_workflow(w, comp_map, task_codes, datasource_lookup=datasource_map)
-
-    # 工作流全局参数 → DS globalParams (转换为 DS 期望格式)
-    import json as _json
-    raw_params = w.params_json or []
-    ds_params = []
-    for p in raw_params:
-        ds_params.append({
-            "prop": p.get("key", p.get("prop", "")),
-            "direct": p.get("direct", "IN"),
-            "type": p.get("type", "VARCHAR"),
-            "value": p.get("value", ""),
-        })
-    global_params = _json.dumps(ds_params, ensure_ascii=False)
-
-    # 已存在 ds_process_code → 更新;否则创建
-    if w.ds_process_code:
-        # 先 offline 才能更新
-        await ds.release_process_definition(w.ds_process_code, online=False)
-        ok = await ds.update_process_definition(
-            w.ds_process_code,
-            payload["name"], payload["description"],
-            payload["taskDefinitionJson"], payload["taskRelationJson"], payload["locations"],
-            global_params=global_params,
-        )
-        if not ok:
-            raise HTTPException(status_code=502, detail="DS 更新 process-definition 失败")
-        pd_code = w.ds_process_code
-    else:
-        pd_code = await ds.save_process_definition(
-            payload["name"], payload["description"],
-            payload["taskDefinitionJson"], payload["taskRelationJson"], payload["locations"],
-            global_params=global_params,
-        )
-        if not pd_code:
-            raise HTTPException(status_code=502, detail="DS 创建 process-definition 失败")
-
-    # 上线 DS process definition
-    ok = await ds.release_process_definition(pd_code, online=True)
-    if not ok:
-        raise HTTPException(status_code=502, detail="DS 上线 process-definition 失败")
-
-    # 处理 schedule
-    schedule_id = w.ds_schedule_id
-    if w.cron_expression:
-        if schedule_id:
-            await ds.update_schedule(schedule_id, w.cron_expression)
-        else:
-            schedule_id = await ds.create_schedule(pd_code, w.cron_expression)
-    return pd_code, schedule_id
 
 
 # ===== 运行信息同步 =====
@@ -327,7 +221,8 @@ async def sync_last_run(
                     except Exception:
                         pass
                 synced += 1
-        except Exception:
+        except Exception as e:
+            logger.warning("sync workflow %s failed: %s", w.id, e)
             continue
     db.commit()
 
@@ -360,12 +255,10 @@ async def sync_last_run(
                     }
                     await do_notify(rule, event)
                     alerted += 1
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("alert notify dispatch failed: %s", e)
 
     return {"synced": synced, "alerted": alerted}
-
-
 # ===== CRUD =====
 @router.get("")
 def list_workflows(
@@ -572,21 +465,8 @@ async def delete_workflow(
             detail=f"工作流状态 {w.status},只有 draft/offline 状态允许删除;请先下线",
         )
     # 先清理 DS 资源 (尽量,失败也继续删 Portal 记录)
-    if w.ds_schedule_id:
-        try:
-            ds = get_ds_client()
-            await ds.schedule_offline(w.ds_schedule_id)
-            await ds.delete_schedule(w.ds_schedule_id)
-        except Exception:
-            pass
-    if w.ds_process_code:
-        try:
-            ds = get_ds_client()
-            await ds.release_process_definition(w.ds_process_code, online=False)
-            await ds.delete_process_definition(w.ds_process_code)
-        except Exception:
-            pass
-    # 清理 ACL 记录，避免孤儿行影响 has_any 判断
+    publisher = WorkflowPublisher(db, get_ds_client())
+    await publisher.cleanup(w)
     from app.models.resource_access import SysResourceAccess
     db.query(SysResourceAccess).filter(
         SysResourceAccess.resource_type == "workflow",
@@ -654,7 +534,8 @@ async def publish_workflow(
             status_code=400,
             detail=f"只有 tested 状态可发布,当前 {w.status},请先测试",
         )
-    pd_code, schedule_id = await _sync_to_ds(db, w)
+    publisher = WorkflowPublisher(db, get_ds_client())
+    pd_code, schedule_id = await publisher.publish(w)
     w.ds_process_code = pd_code
     w.ds_schedule_id = schedule_id
     w.status = STATUS_ONLINE
@@ -690,18 +571,8 @@ async def offline_workflow(
     if w.status != STATUS_ONLINE:
         raise HTTPException(status_code=400, detail=f"只有 online 状态可下线,当前 {w.status}")
     # 同步下线 DS 调度 + process definition
-    if w.ds_schedule_id:
-        try:
-            ds = get_ds_client()
-            await ds.schedule_offline(w.ds_schedule_id)
-        except Exception:
-            pass
-    if w.ds_process_code:
-        try:
-            ds = get_ds_client()
-            await ds.release_process_definition(w.ds_process_code, online=False)
-        except Exception:
-            pass
+    publisher = WorkflowPublisher(db, get_ds_client())
+    await publisher.unpublish(w)
     w.status = STATUS_OFFLINE
     w.schedule_status = "OFFLINE"
     db.commit()
@@ -788,11 +659,8 @@ async def schedule_offline(
     if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
         raise HTTPException(status_code=404, detail="工作流不存在")
     if w.ds_schedule_id:
-        try:
-            ds = get_ds_client()
-            await ds.schedule_offline(w.ds_schedule_id)
-        except Exception:
-            pass
+        publisher = WorkflowPublisher(db, get_ds_client())
+        await publisher.schedule_off(w)
     w.schedule_status = "OFFLINE"
     db.commit()
     db.refresh(w)

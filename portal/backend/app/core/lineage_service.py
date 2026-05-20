@@ -1,5 +1,6 @@
 """血缘服务 — 全量刷新 + 以实体为中心的 BFS 图构建"""
 import json as json_mod
+import logging
 import re
 import time
 from collections import defaultdict
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.models.lineage import TableLineage
 from app.models.component import Component
 from app.models.sync_task import SyncTask
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -85,8 +88,8 @@ def _parse_sql_tables(sql_text: str) -> Tuple[List[str], List[str]]:
                     n = _extract_table_name(t)
                     if n:
                         ast_sources.append(n)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("sqlglot parse failed: %s", e)
 
     # 3. 合并（取并集）
     all_sources = list(dict.fromkeys(regex_sources + ast_sources))
@@ -141,11 +144,9 @@ def _parse_datax_tables(raw_json) -> List[Tuple[str, str]]:
                 for t in writer_tables:
                     if s and t:
                         pairs.append((s, t))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("DataX JSON parse failed: %s", e)
     return pairs
-
-
 # ---------------------------------------------------------------------------
 # 全量刷新
 # ---------------------------------------------------------------------------
@@ -231,7 +232,82 @@ def refresh_lineage(db: Session) -> Dict[str, Any]:
 
 COLUMN_GAP = 300
 ROW_GAP = 120
-NODE_HEIGHT = 72
+
+
+def _bfs_traverse(
+    db: Session,
+    start_tables: Set[str],
+    depth: int,
+    direction: str,
+    used_edges: Set[str],
+    all_lineage_rows: List[TableLineage],
+    all_tables: Dict[str, int],
+) -> None:
+    """通用 BFS 遍历，direction='upstream' | 'downstream'"""
+    filter_col = TableLineage.target_table if direction == 'upstream' else TableLineage.source_table
+    new_attr = 'source_table' if direction == 'upstream' else 'target_table'
+    level_sign = -1 if direction == 'upstream' else 1
+
+    current_layer = set(start_tables)
+    for d in range(1, depth + 1):
+        if not current_layer:
+            break
+        rows = db.query(TableLineage).filter(filter_col.in_(current_layer)).all()
+        next_layer: Set[str] = set()
+        for r in rows:
+            edge_key = f"{r.source_table}→{r.target_table}→{r.id}"
+            if edge_key not in used_edges:
+                used_edges.add(edge_key)
+                all_lineage_rows.append(r)
+            new_table = getattr(r, new_attr)
+            if new_table not in all_tables:
+                all_tables[new_table] = level_sign * d
+                next_layer.add(new_table)
+        current_layer = next_layer
+
+
+def _compute_layout(
+    all_tables: Dict[str, int],
+    center_tables: Set[str],
+    table_ds: Dict[str, Optional[int]],
+    ds_name_cache: Dict[int, str],
+) -> List[Dict]:
+    """根据 BFS 层级计算 Vue Flow 节点位置"""
+    levels: Dict[int, List[str]] = defaultdict(list)
+    for tbl, level in all_tables.items():
+        levels[level].append(tbl)
+    for level in levels:
+        levels[level].sort()
+
+    min_level = min(levels.keys()) if levels else 0
+    max_group_size = max(len(v) for v in levels.values()) if levels else 0
+
+    nodes = []
+    for tbl, level in all_tables.items():
+        group = levels[level]
+        row_idx = group.index(tbl)
+        group_size = len(group)
+        y_offset = (max_group_size - group_size) * ROW_GAP / 2
+        x = (level - min_level) * COLUMN_GAP
+        y = row_idx * ROW_GAP + y_offset
+
+        ds_id = table_ds.get(tbl)
+        ds_name = ds_name_cache.get(ds_id, "") if ds_id else ""
+
+        nodes.append({
+            "id": f"table::{tbl}",
+            "type": "lineage-table",
+            "position": {"x": x, "y": y},
+            "data": {
+                "tableName": tbl,
+                "layer": _infer_layer(tbl),
+                "datasourceName": ds_name,
+                "datasourceId": ds_id,
+                "isCenter": tbl in center_tables,
+                "columns": [],
+            }
+        })
+    return nodes
 
 
 def build_lineage_graph(
@@ -262,51 +338,16 @@ def build_lineage_graph(
             "total_nodes": 0, "total_edges": 0, "upstream_depth": 0, "downstream_depth": 0
         }}
 
-    # 2. BFS 上游
-    all_tables: Dict[str, int] = {}  # table_name → level (0=center, -1=上游1层, ...)
+    # 2. BFS 上游 + 下游
+    all_tables: Dict[str, int] = {}
     for t in center_tables:
         all_tables[t] = 0
 
     all_lineage_rows: List[TableLineage] = []
     used_edges: Set[str] = set()
 
-    # 上游 BFS
-    current_layer = set(center_tables)
-    for d in range(1, depth + 1):
-        if not current_layer:
-            break
-        rows = db.query(TableLineage).filter(
-            TableLineage.target_table.in_(current_layer)
-        ).all()
-        next_layer: Set[str] = set()
-        for r in rows:
-            edge_key = f"{r.source_table}→{r.target_table}→{r.id}"
-            if edge_key not in used_edges:
-                used_edges.add(edge_key)
-                all_lineage_rows.append(r)
-            if r.source_table not in all_tables:
-                all_tables[r.source_table] = -d
-                next_layer.add(r.source_table)
-        current_layer = next_layer
-
-    # 下游 BFS
-    current_layer = set(center_tables)
-    for d in range(1, depth + 1):
-        if not current_layer:
-            break
-        rows = db.query(TableLineage).filter(
-            TableLineage.source_table.in_(current_layer)
-        ).all()
-        next_layer: Set[str] = set()
-        for r in rows:
-            edge_key = f"{r.source_table}→{r.target_table}→{r.id}"
-            if edge_key not in used_edges:
-                used_edges.add(edge_key)
-                all_lineage_rows.append(r)
-            if r.target_table not in all_tables:
-                all_tables[r.target_table] = d
-                next_layer.add(r.target_table)
-        current_layer = next_layer
+    _bfs_traverse(db, center_tables, depth, 'upstream', used_edges, all_lineage_rows, all_tables)
+    _bfs_traverse(db, center_tables, depth, 'downstream', used_edges, all_lineage_rows, all_tables)
 
     # 3. 收集表的数据源信息
     table_ds: Dict[str, Optional[int]] = {}
@@ -327,42 +368,8 @@ def build_lineage_graph(
         ).all()
         ds_name_cache = {r.id: r.name for r in ds_rows}
 
-    # 4. 水平分层布局
-    levels: Dict[int, List[str]] = defaultdict(list)
-    for tbl, level in all_tables.items():
-        levels[level].append(tbl)
-    for level in levels:
-        levels[level].sort()
-
-    min_level = min(levels.keys()) if levels else 0
-    max_group_size = max(len(v) for v in levels.values()) if levels else 0
-
-    nodes = []
-    for tbl, level in all_tables.items():
-        group = levels[level]
-        row_idx = group.index(tbl)
-        group_size = len(group)
-        # 垂直居中
-        y_offset = (max_group_size - group_size) * ROW_GAP / 2
-        x = (level - min_level) * COLUMN_GAP
-        y = row_idx * ROW_GAP + y_offset
-
-        ds_id = table_ds.get(tbl)
-        ds_name = ds_name_cache.get(ds_id, "") if ds_id else ""
-
-        nodes.append({
-            "id": f"table::{tbl}",
-            "type": "lineage-table",
-            "position": {"x": x, "y": y},
-            "data": {
-                "tableName": tbl,
-                "layer": _infer_layer(tbl),
-                "datasourceName": ds_name,
-                "datasourceId": ds_id,
-                "isCenter": tbl in center_tables,
-                "columns": [],
-            }
-        })
+    # 4. 计算布局
+    nodes = _compute_layout(all_tables, center_tables, table_ds, ds_name_cache)
 
     # 5. 构建 edges（按 source_table→target_table 去重合并 label）
     edge_map: Dict[str, Dict] = {}
@@ -394,8 +401,9 @@ def build_lineage_graph(
 
     edges = list(edge_map.values())
 
-    upstream_depth = abs(min_level) if min_level < 0 else 0
-    downstream_depth = max(levels.keys()) if levels else 0
+    levels_list = list(all_tables.values()) if all_tables else [0]
+    upstream_depth = abs(min(levels_list)) if min(levels_list) < 0 else 0
+    downstream_depth = max(levels_list) if max(levels_list) > 0 else 0
 
     return {
         "nodes": nodes,

@@ -30,6 +30,9 @@
     >
       <!-- 组头操作按钮 -->
       <template #group-actions="{ group }">
+        <a-tooltip v-if="userStore.hasPermission('component:write')" content="导入组件">
+          <span class="grp-action" @click.stop="importModalVisible = true">⇧</span>
+        </a-tooltip>
         <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建文件夹">
           <span class="grp-action" @click.stop="startNewFolder(group.type, null)">⊞</span>
         </a-tooltip>
@@ -71,14 +74,9 @@
         </span>
       </template>
 
-      <!-- 组件名称（支持重命名 + datax 特殊显示） -->
+      <!-- 组件名称（支持重命名） -->
       <template #comp-name="{ node }">
-        <span v-if="renamingCompId !== node.id" class="ftp-name">
-          <template v-if="node.data?.type === 'datax' && node.data?.config_json?.source_table">
-            {{ node.data.config_json.source_table }} → {{ node.data.config_json.target_table }}
-          </template>
-          <template v-else>{{ node.name }}</template>
-        </span>
+        <span v-if="renamingCompId !== node.id" class="ftp-name">{{ node.name }}</span>
         <a-input
           v-else
           v-model="renameCompValue"
@@ -332,11 +330,17 @@
       :sql="paramModalSql"
       @confirm="onParamConfirm"
     />
+
+    <!-- 导入组件弹窗 -->
+    <ImportModal
+      v-model:visible="importModalVisible"
+      @imported="loadComponents"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import LangIcon from '../components/LangIcon.vue'
 import FileTreePanel from '../components/FileTreePanel.vue'
 import { TYPE_GROUPS_WITH_DATAX, type TreeNode } from '../composables/useFileTree'
@@ -346,56 +350,70 @@ import {
 } from '@arco-design/web-vue/es/icon'
 import CodeEditor from '../components/CodeEditor.vue'
 import ContextMenu from '../components/ContextMenu.vue'
-import type { MenuItem } from '../components/ContextMenu.vue'
 import {
   getComponents, createComponent, updateComponent, deleteComponent,
   getDatasources, runSqlAdhoc, runComponentScript, quickPublishComponent,
   getComponentFolders, createComponentFolder, renameComponentFolder, deleteComponentFolder,
   setComponentStatus, resumeComponent,
-  moveComponent, reorderComponents, moveComponentFolder,
-  getSyncTasks, deleteSyncTask, getProjects,
+  deleteSyncTask, getProjects,
+  exportComponents,
 } from '../api'
 import SyncTaskCanvas from '../components/SyncTaskCanvas.vue'
 import SyncTaskWizard from '../components/SyncTaskWizard.vue'
 import SqlParamModal from '../components/SqlParamModal.vue'
-import type { ParamDef } from '../components/SqlParamModal.vue'
+import ImportModal from '../components/ImportModal.vue'
+import type { ParamDef } from '../utils/sqlParams'
+import { extractSqlParams, mergeParams, substituteSqlParams } from '../utils/sqlParams'
 import { useUserStore } from '../stores/user'
+
+import { useTabs, type Tab, type Language } from '../composables/useTabs'
+import { statusLabel, statusColor } from '../composables/useComponentStatus'
+import { useComponentDrag } from '../composables/useComponentDrag'
+import { useContextMenu } from '../composables/useContextMenu'
 
 const userStore = useUserStore()
 
-type Language = 'sql' | 'python' | 'shell' | 'datax'
-
-interface Tab {
-  key: string
-  name: string
-  code: string
-  language: Language
-  componentId?: number
-  folderId?: number | null
-  datasourceId?: number
-  syncTaskId?: number | null
-  localParams?: { prop: string; direct: string; type: string; value: string }[]
-  dirty: boolean
-}
-
 const treeRef = ref<InstanceType<typeof FileTreePanel> | null>(null)
-
-const tabs = ref<Tab[]>([])
-const activeKey = ref('')
-const activeTab = computed<Tab | null>(() => tabs.value.find(t => t.key === activeKey.value) ?? null)
 
 const components = ref<any[]>([])
 const datasources = ref<any[]>([])
 const folders = ref<any[]>([])  // flat list from API
 const projects = ref<any[]>([])
 
-const editorRef = ref<any>(null)
 const running = ref(false)
 const saving = ref(false)
 const result = ref<any>(null)
 
 // DataX 同步任务向导
 const wizardVisible = ref(false)
+
+// ---- Composables ----
+
+const {
+  tabs, activeKey, activeTab, editorRef,
+  openComp, newBlankTab,
+  switchTab: _switchTab,
+  closeTab: _closeTab,
+  onCodeChange, formatSQL, onDataxSaved,
+} = useTabs(components, datasources, loadComponents)
+
+// 包装 switchTab/closeTab 以同时清理 result
+function switchTab(key: string) { _switchTab(key); result.value = null }
+function closeTab(key: string) { _closeTab(key); result.value = null }
+
+const {
+  dragState,
+  getNodeClass, getFolderClass, getGroupClass,
+  onCompDragStart: onDragStart,
+  onDragOverNode: onDragOver,
+  onDropOnNode: onDrop,
+  onDragEnd,
+  onDragOverGroup,
+  onDropGroup,
+  folderContains,
+  doMoveComponent,
+  doMoveFolder,
+} = useComponentDrag(components, folders, loadComponents, loadFolders)
 
 // 参数抽屉
 const paramsDrawerVisible = ref(false)
@@ -411,62 +429,6 @@ const paramModalVisible = ref(false)
 const paramModalParams = ref<ParamDef[]>([])
 const paramModalSql = ref('')
 
-/**
- * 从 SQL 中提取 ${xxx} 参数名（排除注释内的）
- * 按出现顺序返回，去重
- */
-function extractSqlParams(sql: string): string[] {
-  // 移除单行注释 -- 和块注释 /* */
-  const cleaned = sql
-    .replace(/--.*$/gm, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-  const matches = cleaned.matchAll(/\$\{(\w+)\}/g)
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const m of matches) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1])
-      result.push(m[1])
-    }
-  }
-  return result
-}
-
-/**
- * 合并 SQL 中发现的参数和已定义的 localParams
- * 按 SQL 中出现顺序排列，未在 SQL 中出现但已定义的参数追加在后
- */
-function mergeParams(sqlParamNames: string[], localParams: Tab['localParams']): ParamDef[] {
-  const defMap = new Map<string, { type: string; value: string; direct: string }>()
-  for (const p of (localParams || [])) {
-    if (p.prop) defMap.set(p.prop, { type: p.type, value: p.value, direct: p.direct })
-  }
-
-  const result: ParamDef[] = []
-  const seen = new Set<string>()
-
-  // 按 SQL 出现顺序
-  for (const name of sqlParamNames) {
-    const def = defMap.get(name)
-    result.push({
-      prop: name,
-      type: def?.type || 'VARCHAR',
-      value: def?.value || '',
-      direct: def?.direct || 'IN',
-    })
-    seen.add(name)
-  }
-
-  // 追加已定义但未在 SQL 中出现的 IN 参数
-  for (const p of (localParams || [])) {
-    if (p.prop && !seen.has(p.prop) && p.direct === 'IN') {
-      result.push({ prop: p.prop, type: p.type, value: p.value, direct: p.direct })
-    }
-  }
-
-  return result
-}
-
 const saveModalVisible = ref(false)
 const saveName = ref('')
 const pendingSaveTab = ref<Tab | null>(null)
@@ -479,128 +441,29 @@ const renamingFolderId = ref<number | null>(null)
 const renameValue = ref('')
 const renameInputRef = ref<any>(null)
 
-// ---- 右键菜单 ----
-const contextMenu = reactive({
-  visible: false,
-  x: 0,
-  y: 0,
-  items: [] as MenuItem[],
-})
-
 // ---- 剪贴板 ----
 const clipboard = ref<{ kind: 'component' | 'folder'; action: 'copy' | 'cut'; id: number; type?: string; folderType?: string } | null>(null)
 
-// ---- 拖拽 ----
-const dragState = reactive({
-  draggingId: null as number | null,
-  dragKind: null as 'component' | 'folder' | null,
-  dragFolderType: null as string | null,
-  dragFolderId: null as number | null,
-  dropTargetId: null as number | string | null,
-  dropKind: null as 'component' | 'folder' | 'group' | null,
-  dropPosition: null as 'before' | 'after' | 'inside' | null,
-})
+// ---- 导入/导出 ----
+const importModalVisible = ref(false)
 
-let tabSeq = 0
-function genKey() { return `tab-${++tabSeq}` }
-
-function isTabActive(compId: number) {
-  return activeTab.value?.componentId === compId
+function downloadJson(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
-function openComp(c: any) {
-  if (c.type === 'datax') {
-    const existing = tabs.value.find(t => t.componentId === c.id)
-    if (existing) { switchTab(existing.key); return }
-    const key = genKey()
-    const cfg = c.config_json || {}
-    const src = cfg.source_table || ''
-    const dst = cfg.target_table || ''
-    const tabName = src && dst ? `${src} → ${dst}` : c.name
-    tabs.value.push({
-      key,
-      name: tabName,
-      code: '',
-      language: 'datax',
-      componentId: c.id,
-      folderId: c.folder_id ?? null,
-      syncTaskId: cfg.sync_task_id ?? null,
-      dirty: false,
-    })
-    switchTab(key)
-    return
+async function doExportComponent(c: any) {
+  try {
+    const res: any = await exportComponents([c.id])
+    downloadJson(new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' }), `${c.name || 'component'}.json`)
+    Message.success('导出成功')
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '导出失败')
   }
-  const existing = tabs.value.find(t => t.componentId === c.id)
-  if (existing) { switchTab(existing.key); return }
-  const key = genKey()
-  // code is stored in config_json.sql or config_json.script
-  const cfg = c.config_json || {}
-  const code = cfg.sql || cfg.script || c.code || ''
-  tabs.value.push({
-    key,
-    name: c.name,
-    code,
-    language: c.type as Language,
-    componentId: c.id,
-    folderId: c.folder_id ?? null,
-    localParams: cfg.localParams || [],
-    datasourceId: (() => {
-      const rawId = cfg.datasource_id || c.datasource_id || undefined
-      if (rawId == null) return undefined
-      const validIds = new Set(datasources.value.map((d: any) => d.id))
-      return validIds.has(rawId) ? rawId : undefined
-    })(),
-    dirty: false,
-  })
-  switchTab(key)
-}
-
-function newBlankTab(lang: Language = 'sql', folderId?: number | null) {
-  if (lang === 'datax') {
-    const key = genKey()
-    tabs.value.push({ key, name: '新建同步任务', code: '', language: 'datax', folderId: folderId ?? null, syncTaskId: null, dirty: false })
-    switchTab(key)
-    return
-  }
-  const key = genKey()
-  const names: Record<string, string> = { sql: 'Untitled SQL', python: 'Untitled Python', shell: 'Untitled Shell' }
-  tabs.value.push({ key, name: names[lang] ?? 'Untitled', code: '', language: lang, folderId: folderId ?? null, dirty: false })
-  switchTab(key)
-}
-
-function switchTab(key: string) { activeKey.value = key; result.value = null }
-
-function onDataxSaved(res: any) {
-  // 新建时 res 包含 _component，需要更新当前 tab 的 syncTaskId/componentId
-  const tab = activeTab.value
-  if (res._component && tab) {
-    tab.syncTaskId = res.id
-    tab.componentId = res._component.id
-    const src = res.source_table || ''
-    const dst = res.target_table || ''
-    tab.name = src && dst ? `${src} → ${dst}` : (res.name || tab.name)
-    tab.dirty = false
-  }
-  loadComponents()
-}
-
-function closeTab(key: string) {
-  const idx = tabs.value.findIndex(t => t.key === key)
-  if (idx === -1) return
-  tabs.value.splice(idx, 1)
-  if (activeKey.value === key) activeKey.value = tabs.value[Math.max(0, idx - 1)]?.key ?? ''
-  result.value = null
-}
-
-function onCodeChange(v: string) {
-  const tab = activeTab.value
-  if (tab) { tab.code = v; tab.dirty = true }
-}
-
-function formatSQL() {
-  editorRef.value?.formatDocument?.()
-  const tab = activeTab.value
-  if (tab) tab.dirty = true
 }
 
 // ---- 文件夹操作 ----
@@ -621,7 +484,7 @@ async function confirmNewFolder() {
     })
     newFolderVisible.value = false
     await loadFolders()
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 
 function startRename(node: TreeNode) {
@@ -639,7 +502,7 @@ async function submitRename(id: number) {
   try {
     await renameComponentFolder(id, renameValue.value.trim())
     await loadFolders()
-  } catch {} finally {
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') } finally {
     renamingFolderId.value = null
   }
 }
@@ -649,65 +512,10 @@ async function deleteFolder(id: number) {
     await deleteComponentFolder(id)
     await loadFolders()
     Message.success('文件夹已删除')
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 
-// ---- 状态系统 ----
-// 状态定义：自动状态（不可手动设置）+ 手动状态
-const STATUS_DEFS: Record<string, { label: string; color: string; manual: boolean }> = {
-  draft:       { label: '草稿',   color: '#86909C', manual: false },
-  developing:  { label: '开发中', color: '#2B5AED', manual: true  },
-  testing:     { label: '测试中', color: '#FF7D00', manual: true  },
-  reviewing:   { label: '审核中', color: '#14B8A6', manual: true  },
-  tested:      { label: '已测试', color: '#A3C644', manual: true  },
-  online:      { label: '已上线', color: '#00B42A', manual: false },
-  offline:     { label: '已下线', color: '#C9CDD4', manual: true  },
-  paused:      { label: '已暂停', color: '#F53F3F', manual: true  },
-  deprecated:  { label: '已废弃', color: '#6B7280', manual: true  },
-  archived:    { label: '已归档', color: '#722ED1', manual: true  },
-}
-
-function statusLabel(s: string): string {
-  return STATUS_DEFS[s]?.label || s
-}
-function statusColor(s: string): string {
-  return STATUS_DEFS[s]?.color || '#86909C'
-}
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '')
-  const r = parseInt(h.substring(0, 2), 16)
-  const g = parseInt(h.substring(2, 4), 16)
-  const b = parseInt(h.substring(4, 6), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-function statusTagStyle(s: string) {
-  const color = statusColor(s)
-  return {
-    background: hexToRgba(color, 0.12),
-    color: color,
-  }
-}
-const STATUS_TRANSITIONS: Record<string, string[]> = {
-  draft:      ['developing', 'testing', 'deprecated', 'archived'],
-  developing: ['testing', 'paused', 'deprecated'],
-  testing:    ['reviewing', 'tested', 'paused', 'deprecated'],
-  reviewing:  ['tested', 'paused', 'developing'],
-  tested:     ['paused', 'testing'],
-  online:     ['offline', 'paused'],
-  offline:    ['online', 'archived', 'paused', 'developing'],
-  paused:     [],
-  deprecated: ['archived'],
-  archived:   [],
-}
-function manualStatusOptions(current: string) {
-  if (current === 'paused') return []
-  if (current === 'archived') return []
-  const allowed = STATUS_TRANSITIONS[current] ?? []
-  return allowed
-    .filter(k => STATUS_DEFS[k]?.manual)
-    .map(k => ({ value: k, label: STATUS_DEFS[k].label, color: STATUS_DEFS[k].color }))
-}
-
+// ---- 状态操作 ----
 async function setCompStatus(c: any, status: string) {
   try {
     if (status === '__resume__') {
@@ -718,14 +526,13 @@ async function setCompStatus(c: any, status: string) {
       Message.success('状态已更新')
     }
     await loadComponents()
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 
 async function confirmDeleteComp(c: any) {
   if (!confirm(`确定删除组件「${c.name}」？此操作不可恢复`)) return
   try {
     if (c.type === 'datax') {
-      // 后端 delete_task 会级联删除关联的 Component 和 Workflow
       const syncTaskId = c.config_json?.sync_task_id
       if (syncTaskId) {
         await deleteSyncTask(syncTaskId)
@@ -739,8 +546,113 @@ async function confirmDeleteComp(c: any) {
     const idx = tabs.value.findIndex(t => t.componentId === c.id)
     if (idx >= 0) closeTab(tabs.value[idx].key)
     await loadComponents()
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
+
+// ---- 组件重命名 ----
+const renamingCompId = ref<number | null>(null)
+const renameCompValue = ref('')
+const renameCompInputRef = ref<any>(null)
+
+function startRenameComponent(node: TreeNode) {
+  renamingCompId.value = node.id
+  renameCompValue.value = node.name
+  nextTick(() => {
+    const el = renameCompInputRef.value
+    if (Array.isArray(el)) el[0]?.focus?.()
+    else el?.focus?.()
+  })
+}
+
+async function submitRenameComp(id: number) {
+  if (!renameCompValue.value.trim()) { renamingCompId.value = null; return }
+  try {
+    await updateComponent(id, { name: renameCompValue.value.trim() })
+    await loadComponents()
+    const tab = tabs.value.find(t => t.componentId === id)
+    if (tab) tab.name = renameCompValue.value.trim()
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') } finally {
+    renamingCompId.value = null
+  }
+}
+
+// ---- 剪贴板操作 ----
+async function doPaste(targetNode: TreeNode) {
+  const cb = clipboard.value
+  if (!cb) return
+  if (cb.kind === 'component') {
+    const targetFolderId = targetNode.kind === 'folder' ? targetNode.id : (targetNode.data?.folder_id ?? null)
+    if (cb.action === 'copy') {
+      const src = components.value.find(c => c.id === cb.id)
+      if (!src) return
+      try {
+        const res: any = await createComponent({
+          name: src.name + '_copy',
+          type: src.type,
+          description: src.description,
+          config_json: src.config_json || {},
+          folder_id: targetFolderId,
+        })
+        Message.success('已复制')
+        await loadComponents()
+        openComp(res)
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
+    } else if (cb.action === 'cut') {
+      await doMoveComponent(cb.id, targetFolderId ?? 0)
+      clipboard.value = null
+    }
+  } else if (cb.kind === 'folder') {
+    if (targetNode.kind !== 'folder') return
+    if (cb.action === 'cut') {
+      if (cb.id === targetNode.id || folderContains(cb.id, targetNode.id)) {
+        Message.error('不能将文件夹移动到自身或其子文件夹中')
+        return
+      }
+      await doMoveFolder(cb.id, targetNode.id)
+      clipboard.value = null
+    } else if (cb.action === 'copy') {
+      const src = folders.value.find(f => f.id === cb.id)
+      if (!src) return
+      try {
+        await createComponentFolder({
+          name: src.name + '_copy',
+          type: src.type,
+          parent_id: targetNode.id,
+        })
+        Message.success('已复制文件夹')
+        await loadFolders()
+        clipboard.value = null
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
+    }
+  }
+}
+
+// ---- 右键菜单 ----
+const {
+  contextMenu,
+  onMenuSelect,
+  showCompContextMenu,
+  showFolderContextMenu,
+} = useContextMenu({
+  folders,
+  clipboard,
+  folderCollapsedGetter: (id: number) => !!treeRef.value?.folderCollapsed?.[id],
+  folderCollapsedSetter: (id: number, val: boolean) => {
+    if (treeRef.value?.folderCollapsed) treeRef.value.folderCollapsed[id] = val
+  },
+  openComp,
+  runCode,
+  newBlankTab,
+  startRename,
+  startRenameComponent,
+  startNewFolder,
+  confirmDeleteComp,
+  deleteFolder,
+  setCompStatus,
+  doPaste,
+  doMoveComponent,
+  exportComponent: doExportComponent,
+})
 
 // Convert list-of-lists rows to list-of-objects for a-table
 function normalizeResult(res: any): any {
@@ -764,22 +676,18 @@ async function runCode() {
     const sql = (sel || tab.code).trim()
     if (!sql) { Message.warning('请输入 SQL'); return }
 
-    // 提取 SQL 中的参数
     const sqlParamNames = extractSqlParams(sql)
-    const merged = mergeParams(sqlParamNames, tab.localParams)
+    const merged = mergeParams(sqlParamNames, tab.localParams || [])
 
     if (merged.length > 0) {
-      // 有参数 → 弹窗填值
       paramModalSql.value = sql
       paramModalParams.value = merged
       paramModalVisible.value = true
       return
     }
 
-    // 无参数 → 直接执行
     await executeSQL(tab, sql)
   } else {
-    // Python/Shell 组件
     if (!tab.componentId) { Message.warning('请先保存后再运行'); return }
     result.value = null
     running.value = true
@@ -799,26 +707,12 @@ async function onParamConfirm(values: Record<string, string>) {
   const tab = activeTab.value
   if (!tab) return
 
-  // 构建参数类型映射
   const typeMap = new Map<string, string>()
   for (const p of paramModalParams.value) {
     typeMap.set(p.prop, p.type)
   }
 
-  // 替换 SQL 中的 ${param_name}，根据类型自动处理引号
-  // 先处理用户已手动加引号的情况 '${xxx}'，再处理裸 ${xxx}
-  let sql = paramModalSql.value
-  for (const [key, val] of Object.entries(values)) {
-    const pType = typeMap.get(key) || 'VARCHAR'
-    const needsQuote = ['VARCHAR', 'DATE', 'TIME', 'TIMESTAMP'].includes(pType)
-    const quotedVal = needsQuote ? `'${val}'` : val
-
-    // 先替换已被引号包裹的 '${xxx}' → 直接用带引号的值（避免双引号）
-    sql = sql.split("'${" + key + "}'").join(quotedVal)
-    // 再替换裸 ${xxx} → 也加引号
-    sql = sql.split('${' + key + '}').join(quotedVal)
-  }
-
+  const sql = substituteSqlParams(paramModalSql.value, values, typeMap)
   await executeSQL(tab, sql)
 }
 
@@ -840,7 +734,6 @@ async function saveTab() {
   const tab = activeTab.value
   if (!tab) return
   if (!tab.componentId) {
-    // 弹窗已打开时不覆盖，避免丢失正在命名的另一个标签
     if (saveModalVisible.value) {
       Message.warning('请先完成当前保存操作')
       return
@@ -866,7 +759,6 @@ async function confirmSave() {
 async function doSave(tab: Tab) {
   saving.value = true
   try {
-    // 构造 config_json
     const langKey = tab.language === 'sql' ? 'sql' : 'script'
     const config_json: any = { [langKey]: tab.code }
     if (tab.datasourceId != null) config_json.datasource_id = tab.datasourceId
@@ -887,7 +779,7 @@ async function doSave(tab: Tab) {
     tab.dirty = false
     Message.success('已保存')
     await loadComponents()
-  } catch {} finally {
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') } finally {
     saving.value = false
   }
 }
@@ -900,7 +792,7 @@ async function quickPublish() {
     await quickPublishComponent(tab.componentId!)
     Message.success('已发布上线')
     await loadComponents()
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 
 // ---- 数据加载 ----
@@ -922,7 +814,6 @@ async function loadDatasources() {
   try {
     const res: any = await getDatasources({ page_size: 100 })
     datasources.value = res.items || []
-    // Clear stale datasourceId on any open tabs
     const validIds = new Set(datasources.value.map((d: any) => d.id))
     tabs.value.forEach(t => {
       if (t.datasourceId != null && !validIds.has(t.datasourceId)) {
@@ -936,496 +827,6 @@ async function loadProjects() {
   try {
     const res: any = await getProjects({ page_size: 200 })
     projects.value = res.items || res || []
-  } catch {}
-}
-
-// ---- 右键菜单 ----
-function typeLabel(type: string): string {
-  const map: Record<string, string> = { sql: 'SQL 查询', python: 'Python 脚本', shell: 'Shell 脚本', datax: 'DataX 同步' }
-  return map[type] || type
-}
-
-function buildCompMenuItems(node: TreeNode): MenuItem[] {
-  const c = node.data
-  const t = c.type as string
-  const items: MenuItem[] = []
-
-  if (t === 'datax') {
-    items.push({ key: 'open', label: '打开' })
-    items.push({ divider: true })
-    items.push({ key: 'delete', label: '删除', danger: true })
-    return items
-  }
-
-  items.push({ key: 'open', label: '打开' })
-  items.push({ key: 'run', label: '运行' })
-  items.push({ divider: true })
-  items.push({ key: `new-${t}`, label: `新建${typeLabel(t)}` })
-  items.push({ key: 'copy', label: '复制' })
-  items.push({ key: 'cut', label: '剪切' })
-  if (clipboard.value && clipboard.value.kind === 'component') {
-    items.push({ key: 'paste', label: '粘贴' })
-  }
-  items.push({ divider: true })
-  items.push({ key: 'rename', label: '重命名' })
-  items.push({
-    key: 'move',
-    label: '移动到其他文件夹',
-    children: buildMoveToFolderMenu(t, 'move-to'),
-  })
-  items.push({ divider: true })
-  if (c.status === 'paused') {
-    items.push({ key: 'resume', label: '从暂停恢复' })
-  } else if (c.status !== 'archived') {
-    items.push({
-      key: 'status',
-      label: '设置状态',
-      children: buildStatusSubmenu(c.status),
-    })
-  }
-  items.push({ divider: true })
-  items.push({ key: 'delete', label: '删除', danger: true })
-  return items
-}
-
-function buildFolderMenuItems(node: TreeNode): MenuItem[] {
-  const items: MenuItem[] = []
-  const collapsed = folderCollapsed[node.id]
-  const t = node.folderType
-  items.push({ key: collapsed ? 'expand' : 'collapse', label: collapsed ? '展开' : '折叠' })
-  items.push({ divider: true })
-  if (node.depth < 3) {
-    items.push({ key: 'new-subfolder', label: '新建子文件夹' })
-  }
-  items.push({ key: `new-${t}`, label: `新建${typeLabel(t)}` })
-  items.push({ divider: true })
-  items.push({ key: 'rename', label: '重命名' })
-  items.push({ key: 'cut', label: '剪切' })
-  if (clipboard.value && clipboard.value.kind === 'folder') {
-    items.push({ key: 'paste', label: '粘贴' })
-  }
-  items.push({ divider: true })
-  items.push({ key: 'delete', label: '删除', danger: true })
-  return items
-}
-
-function buildStatusSubmenu(current: string): MenuItem[] {
-  const opts = manualStatusOptions(current)
-  return opts.map(o => ({
-    key: `status-${o.value}`,
-    label: o.label,
-    icon: 'dot',
-  }))
-}
-
-function buildMoveToFolderMenu(type: string, prefix: string): MenuItem[] {
-  const typeFolders = folders.value.filter(f => f.type === type)
-  const roots = typeFolders.filter(f => f.parent_id == null)
-  function buildSub(foldersList: any[]): MenuItem[] {
-    return foldersList.map(f => {
-      const children = typeFolders.filter(child => child.parent_id === f.id)
-      const item: MenuItem = { key: `${prefix}-${f.id}`, label: f.name }
-      if (children.length > 0) {
-        item.children = buildSub(children)
-      }
-      return item
-    })
-  }
-  const menu = buildSub(roots)
-  // 添加"无文件夹"选项
-  menu.unshift({ key: `${prefix}-0`, label: '（无文件夹）' })
-  return menu
-}
-
-async function onMenuSelect(key: string) {
-  // 从 contextMenu 的触发源中恢复当前节点 —— 通过最后一个右键事件记录
-  const targetNode = lastContextNode.value
-  if (!targetNode) return
-
-  if (key === 'open') {
-    if (targetNode.kind === 'component') openComp(targetNode.data)
-  } else if (key === 'run') {
-    if (targetNode.kind === 'component') {
-      openComp(targetNode.data)
-      await nextTick()
-      runCode()
-    }
-  } else if (key === 'expand') {
-    folderCollapsed[targetNode.id] = false
-  } else if (key === 'collapse') {
-    folderCollapsed[targetNode.id] = true
-  } else if (key === 'copy') {
-    if (targetNode.kind === 'component') {
-      clipboard.value = { kind: 'component', action: 'copy', id: targetNode.id, type: targetNode.data.type }
-    }
-  } else if (key === 'cut') {
-    if (targetNode.kind === 'component') {
-      clipboard.value = { kind: 'component', action: 'cut', id: targetNode.id, type: targetNode.data.type }
-    } else if (targetNode.kind === 'folder') {
-      clipboard.value = { kind: 'folder', action: 'cut', id: targetNode.id, folderType: targetNode.folderType }
-    }
-  } else if (key === 'paste') {
-    await doPaste(targetNode)
-  } else if (key === 'rename') {
-    if (targetNode.kind === 'folder') startRename(targetNode)
-    else if (targetNode.kind === 'component') startRenameComponent(targetNode)
-  } else if (key === 'delete') {
-    if (targetNode.kind === 'component') await confirmDeleteComp(targetNode.data)
-    else if (targetNode.kind === 'folder') await deleteFolder(targetNode.id)
-  } else if (key === 'new-subfolder') {
-    if (targetNode.kind === 'folder') startNewFolder(targetNode.folderType, targetNode.id)
-  } else if (key === 'resume') {
-    if (targetNode.kind === 'component') await setCompStatus(targetNode.data, '__resume__')
-  } else if (key.startsWith('status-')) {
-    const status = key.replace('status-', '')
-    if (targetNode.kind === 'component') await setCompStatus(targetNode.data, status)
-  } else if (key.startsWith('move-to-')) {
-    const folderId = parseInt(key.replace('move-to-', ''), 10)
-    if (targetNode.kind === 'component') await doMoveComponent(targetNode.data.id, folderId)
-  } else if (key.startsWith('new-')) {
-    const lang = key.replace('new-', '') as Language
-    const folderId = targetNode.kind === 'folder' ? targetNode.id : (targetNode.data?.folder_id ?? null)
-    newBlankTab(lang, folderId)
-  }
-}
-
-const lastContextNode = ref<TreeNode | null>(null)
-
-function showCompContextMenu(e: MouseEvent, node: TreeNode) {
-  lastContextNode.value = node
-  contextMenu.x = e.clientX
-  contextMenu.y = e.clientY
-  contextMenu.items = buildCompMenuItems(node)
-  contextMenu.visible = true
-}
-
-function showFolderContextMenu(e: MouseEvent, node: TreeNode) {
-  lastContextNode.value = node
-  contextMenu.x = e.clientX
-  contextMenu.y = e.clientY
-  contextMenu.items = buildFolderMenuItems(node)
-  contextMenu.visible = true
-}
-
-// ---- 剪贴板操作 ----
-async function doPaste(targetNode: TreeNode) {
-  const cb = clipboard.value
-  if (!cb) return
-  if (cb.kind === 'component') {
-    const targetFolderId = targetNode.kind === 'folder' ? targetNode.id : (targetNode.data?.folder_id ?? null)
-    if (cb.action === 'copy') {
-      // 复制：创建新组件
-      const src = components.value.find(c => c.id === cb.id)
-      if (!src) return
-      try {
-        const res: any = await createComponent({
-          name: src.name + '_copy',
-          type: src.type,
-          description: src.description,
-          config_json: src.config_json || {},
-          folder_id: targetFolderId,
-        })
-        Message.success('已复制')
-        await loadComponents()
-        openComp(res)
-      } catch {}
-    } else if (cb.action === 'cut') {
-      await doMoveComponent(cb.id, targetFolderId ?? 0)
-      clipboard.value = null
-    }
-  } else if (cb.kind === 'folder') {
-    if (targetNode.kind !== 'folder') return
-    if (cb.action === 'cut') {
-      // 防止循环引用：不能把文件夹移动到自身或其子孙
-      if (cb.id === targetNode.id || folderContains(cb.id, targetNode.id)) {
-        Message.error('不能将文件夹移动到自身或其子文件夹中')
-        return
-      }
-      await doMoveFolder(cb.id, targetNode.id)
-      clipboard.value = null
-    } else if (cb.action === 'copy') {
-      // 复制文件夹：创建同名文件夹（不递归复制内容）
-      const src = folders.value.find(f => f.id === cb.id)
-      if (!src) return
-      try {
-        await createComponentFolder({
-          name: src.name + '_copy',
-          type: src.type,
-          parent_id: targetNode.id,
-        })
-        Message.success('已复制文件夹')
-        await loadFolders()
-        clipboard.value = null
-      } catch {}
-    }
-  }
-}
-
-// ---- 组件重命名 ----
-const renamingCompId = ref<number | null>(null)
-const renameCompValue = ref('')
-const renameCompInputRef = ref<any>(null)
-
-function startRenameComponent(node: TreeNode) {
-  renamingCompId.value = node.id
-  renameCompValue.value = node.name
-  nextTick(() => {
-    const el = renameCompInputRef.value
-    if (Array.isArray(el)) el[0]?.focus?.()
-    else el?.focus?.()
-  })
-}
-
-async function submitRenameComp(id: number) {
-  if (!renameCompValue.value.trim()) { renamingCompId.value = null; return }
-  try {
-    await updateComponent(id, { name: renameCompValue.value.trim() })
-    await loadComponents()
-    // 更新已打开 tab 的名称
-    const tab = tabs.value.find(t => t.componentId === id)
-    if (tab) tab.name = renameCompValue.value.trim()
-  } catch {} finally {
-    renamingCompId.value = null
-  }
-}
-
-// ---- 拖拽状态 CSS 映射 ----
-function getNodeClass(node: TreeNode) {
-  return {
-    'dragging': dragState.draggingId === node.id && dragState.dragKind === 'component',
-    'drop-target': dragState.dropTargetId === node.id && dragState.dropKind === 'component',
-    'drop-before': dragState.dropTargetId === node.id && dragState.dropPosition === 'before',
-    'drop-after': dragState.dropTargetId === node.id && dragState.dropPosition === 'after',
-  }
-}
-
-function getFolderClass(node: TreeNode) {
-  return {
-    'dragging': dragState.draggingId === node.id && dragState.dragKind === 'folder',
-    'drop-target': dragState.dropTargetId === node.id && dragState.dropKind === 'folder',
-  }
-}
-
-function getGroupClass(group: { type: string }) {
-  return {
-    'drop-target': dragState.dropTargetId === group.type && dragState.dropKind === 'group',
-  }
-}
-
-// ---- 拖拽 ----
-function onDragStart(e: DragEvent, node: TreeNode) {
-  dragState.draggingId = node.id
-  dragState.dragKind = node.kind
-  dragState.dragFolderType = node.folderType
-  dragState.dragFolderId = node.data?.folder_id ?? null
-  e.dataTransfer!.effectAllowed = 'move'
-  e.dataTransfer!.setData('application/json', JSON.stringify({
-    id: node.id,
-    kind: node.kind,
-    folderType: node.folderType,
-    type: node.data?.type,
-    folderId: node.data?.folder_id,
-  }))
-}
-
-/** 检查拖拽文件夹是否包含目标文件夹（防止循环引用） */
-function folderContains(parentId: number, childId: number): boolean {
-  const children = folders.value.filter(f => f.parent_id === parentId)
-  for (const child of children) {
-    if (child.id === childId) return true
-    if (folderContains(child.id, childId)) return true
-  }
-  return false
-}
-
-function onDragOver(e: DragEvent, targetNode: TreeNode) {
-  e.preventDefault()
-  // 同节点不处理
-  if (dragState.draggingId === targetNode.id) {
-    dragState.dropTargetId = null
-    dragState.dropKind = null
-    dragState.dropPosition = null
-    e.dataTransfer!.dropEffect = 'none'
-    return
-  }
-
-  // 跨类型阻止
-  if (dragState.dragFolderType !== targetNode.folderType) {
-    dragState.dropTargetId = null
-    dragState.dropKind = null
-    dragState.dropPosition = null
-    e.dataTransfer!.dropEffect = 'none'
-    return
-  }
-
-  // 文件夹不能拖到组件上
-  if (dragState.dragKind === 'folder' && targetNode.kind === 'component') {
-    dragState.dropTargetId = null
-    dragState.dropKind = null
-    dragState.dropPosition = null
-    e.dataTransfer!.dropEffect = 'none'
-    return
-  }
-
-  // 文件夹拖到文件夹：阻止循环引用（不能拖到自身或其子文件夹）
-  if (dragState.dragKind === 'folder' && targetNode.kind === 'folder') {
-    if (dragState.draggingId! === targetNode.id || folderContains(dragState.draggingId!, targetNode.id)) {
-      dragState.dropTargetId = null
-      dragState.dropKind = null
-      dragState.dropPosition = null
-      e.dataTransfer!.dropEffect = 'none'
-      return
-    }
-  }
-
-  e.dataTransfer!.dropEffect = 'move'
-  dragState.dropTargetId = targetNode.id
-  dragState.dropKind = targetNode.kind
-
-  // 计算插入位置：文件夹 = inside，组件 = 根据鼠标位置判断 before/after
-  if (targetNode.kind === 'folder') {
-    dragState.dropPosition = 'inside'
-  } else {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const midY = rect.top + rect.height / 2
-    dragState.dropPosition = e.clientY < midY ? 'before' : 'after'
-  }
-}
-
-async function onDrop(e: DragEvent, targetNode: TreeNode) {
-  e.preventDefault()
-  const dataStr = e.dataTransfer!.getData('application/json')
-  if (!dataStr) return
-  const data = JSON.parse(dataStr)
-
-  // 跨类型忽略
-  if (dragState.dragFolderType !== targetNode.folderType) return
-
-  if (data.kind === 'component' && targetNode.kind === 'folder') {
-    // 组件拖到文件夹 = 移动
-    await doMoveComponent(data.id, targetNode.id)
-  } else if (data.kind === 'component' && targetNode.kind === 'component') {
-    // 组件拖到组件
-    if (data.folderId === targetNode.data?.folder_id) {
-      // 同文件夹 = 排序
-      await doReorderBetween(data.id, targetNode.id, (dragState.dropPosition === 'inside' ? 'before' : dragState.dropPosition) ?? 'before')
-    } else {
-      // 跨文件夹 = 移到目标文件夹（根目录用 0）
-      await doMoveComponent(data.id, targetNode.data?.folder_id ?? 0)
-      // 等待数据刷新后再排序
-      await loadComponents()
-      await doReorderBetween(data.id, targetNode.id, (dragState.dropPosition === 'inside' ? 'before' : dragState.dropPosition) ?? 'before')
-    }
-  } else if (dragState.dragKind === 'folder' && targetNode.kind === 'folder') {
-    // 文件夹拖到文件夹 = 嵌套移动
-    if (dragState.draggingId! === targetNode.id || folderContains(dragState.draggingId!, targetNode.id)) return
-    await doMoveFolder(data.id, targetNode.id)
-  }
-
-  dragState.draggingId = null
-  dragState.dragKind = null
-  dragState.dragFolderType = null
-  dragState.dragFolderId = null
-  dragState.dropTargetId = null
-  dragState.dropKind = null
-  dragState.dropPosition = null
-}
-
-/** 拖拽经过类型组标题：只允许同类型组件移回根目录 */
-function onDragOverGroup(e: DragEvent, group: { type: string }) {
-  const groupType = group.type
-  e.preventDefault()
-  if (dragState.dragFolderType !== groupType) {
-    e.dataTransfer!.dropEffect = 'none'
-    dragState.dropTargetId = null
-    dragState.dropKind = null
-    dragState.dropPosition = null
-    return
-  }
-  if (dragState.dragKind === 'folder') {
-    e.dataTransfer!.dropEffect = 'none'
-    dragState.dropTargetId = null
-    dragState.dropKind = null
-    dragState.dropPosition = null
-    return
-  }
-  e.dataTransfer!.dropEffect = 'move'
-  dragState.dropTargetId = groupType
-  dragState.dropKind = 'group'
-  dragState.dropPosition = null
-}
-
-/** 组件拖到类型组标题 = 移到根目录 */
-async function onDropGroup(e: DragEvent, group: { type: string }) {
-  const groupType = group.type
-  e.preventDefault()
-  const dataStr = e.dataTransfer!.getData('application/json')
-  if (!dataStr) return
-  const data = JSON.parse(dataStr)
-  if (dragState.dragFolderType !== groupType) return
-  if (data.kind === 'component') {
-    await doMoveComponent(data.id, 0)
-  }
-  dragState.draggingId = null
-  dragState.dragKind = null
-  dragState.dragFolderType = null
-  dragState.dragFolderId = null
-  dragState.dropTargetId = null
-  dragState.dropKind = null
-  dragState.dropPosition = null
-}
-
-function onDragEnd(_e?: DragEvent, _node?: TreeNode) {
-  dragState.draggingId = null
-  dragState.dragKind = null
-  dragState.dragFolderType = null
-  dragState.dragFolderId = null
-  dragState.dropTargetId = null
-  dragState.dropKind = null
-  dragState.dropPosition = null
-}
-
-async function doMoveComponent(compId: number, folderId: number) {
-  try {
-    await moveComponent(compId, folderId)
-    Message.success('移动成功')
-    await loadComponents()
-  } catch {}
-}
-
-async function doReorderBetween(dragId: number, targetId: number, dropPosition: 'before' | 'after' = 'before') {
-  // 获取同文件夹的所有组件，重新计算 sort_order
-  const dragComp = components.value.find(c => c.id === dragId)
-  const targetComp = components.value.find(c => c.id === targetId)
-  if (!dragComp || !targetComp) return
-  const sameFolder = components.value
-    .filter(c => c.folder_id === targetComp.folder_id && c.type === targetComp.type)
-    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || b.id - a.id)
-
-  const dragIdx = sameFolder.findIndex(c => c.id === dragId)
-  const targetIdx = sameFolder.findIndex(c => c.id === targetId)
-  if (dragIdx === -1 || targetIdx === -1) return
-
-  // 移动数组元素，区分 before/after
-  const item = sameFolder.splice(dragIdx, 1)[0]
-  const insertIdx = dropPosition === 'after'
-    ? (dragIdx < targetIdx ? targetIdx : targetIdx + 1)
-    : (dragIdx > targetIdx ? targetIdx : targetIdx)
-  sameFolder.splice(insertIdx, 0, item)
-
-  // 重新分配 sort_order
-  const orders = sameFolder.map((c, i) => ({ id: c.id, sort_order: i * 10 }))
-  try {
-    await reorderComponents(orders)
-    await loadComponents()
-  } catch {}
-}
-
-async function doMoveFolder(folderId: number, parentId: number) {
-  try {
-    await moveComponentFolder(folderId, parentId)
-    Message.success('移动成功')
-    await loadFolders()
   } catch {}
 }
 

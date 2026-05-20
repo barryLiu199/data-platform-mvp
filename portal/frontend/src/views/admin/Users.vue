@@ -180,7 +180,7 @@ async function handleSubmit() {
     }
     drawerVisible.value = false
     loadUsers()
-  } catch {}
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
 }
 
 function handleDelete(user: any) {
@@ -188,9 +188,11 @@ function handleDelete(user: any) {
     title: `确认删除用户 "${user.username}"？`,
     content: '此操作不可恢复',
     onOk: async () => {
-      await adminDeleteUser(user.id)
-      Message.success('已删除')
-      loadUsers()
+      try {
+        await adminDeleteUser(user.id)
+        Message.success('已删除')
+        loadUsers()
+      } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
     },
   })
 }

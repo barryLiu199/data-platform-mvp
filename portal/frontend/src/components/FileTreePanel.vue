@@ -144,12 +144,7 @@ defineExpose({ grpCollapsed, folderCollapsed, toggleGrp, toggleFolder, compCount
             >
               <LangIcon :type="node.data?.type || node.folderType" :size="18" />
               <slot name="comp-name" :node="node">
-                <span class="ftp-name">
-                  <template v-if="node.data?.type === 'datax' && node.data?.config_json?.source_table">
-                    {{ node.data.config_json.source_table }} → {{ node.data.config_json.target_table }}
-                  </template>
-                  <template v-else>{{ node.name }}</template>
-                </span>
+                <span class="ftp-name">{{ node.name }}</span>
               </slot>
               <slot name="comp-suffix" :node="node">
                 <span v-if="draggable" class="ftp-drag-hint">⠿</span>

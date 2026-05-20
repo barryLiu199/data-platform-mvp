@@ -45,7 +45,8 @@ def _get_redis():
             r.ping()
             _redis_client = r
             return _redis_client
-        except Exception:
+        except Exception as e:
+            logger.warning("Redis unavailable for rate limiting: %s", e)
             return None
 
 

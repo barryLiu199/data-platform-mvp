@@ -2,7 +2,10 @@
 
 替代 OpenMetadata 的 MVP 方案: 按需 (on-demand) 走 information_schema 查表/字段
 """
+import logging
 from typing import List, Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -531,7 +534,8 @@ def metadata_stats(
             table_count += t_count
             total_rows += t_rows
             ds_breakdown.append({"name": ds.name, "tables": t_count, "rows": t_rows})
-        except Exception:
+        except Exception as e:
+            logger.warning("datasource %s unreachable: %s", ds.name, e)
             ds_breakdown.append({"name": ds.name, "tables": 0, "rows": 0})
 
     # 格式化总行数
@@ -610,8 +614,8 @@ def get_lineage(
                                 add_node(st)
                                 add_node(tt)
                                 edges.append({"source": st, "target": tt, "type": "DataX", "task_name": c.name})
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("DataX lineage parse failed for component %s: %s", c.name, e)
         elif c.type == "sql":
             # 简单正则提取 FROM/JOIN/INSERT INTO
             sql_text = cfg.get("sql", "")

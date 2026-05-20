@@ -229,6 +229,19 @@ export const getWorkflowVersions = (id: number) => api.get(`/workflows/${id}/ver
 export const getWorkflowVersion = (id: number, verId: number) => api.get(`/workflows/${id}/versions/${verId}`)
 export const rollbackWorkflowVersion = (id: number, verId: number) => api.post(`/workflows/${id}/versions/${verId}/rollback`)
 
+// Transfer (Import/Export)
+export const exportComponents = (ids: number[]) =>
+  api.post('/transfer/export/components', { ids })
+export const exportWorkflows = (ids: number[]) =>
+  api.post('/transfer/export/workflows', { ids })
+export const importBundle = (file: File, strategy: string = 'skip') => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post(`/transfer/import?strategy=${strategy}`, fd)
+}
+export const previewComponentExport = (id: number) =>
+  api.get(`/transfer/export/components/${id}/preview`)
+
 // Notify Channels
 export const adminListChannels = () => api.get('/admin/notify-channels')
 export const adminCreateChannel = (data: any) => api.post('/admin/notify-channels', data)

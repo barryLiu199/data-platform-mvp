@@ -6,9 +6,9 @@ USER root
 RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list \
  && sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list
 
-# 安装 Python3（DataX 运行依赖）
+# 安装 Python3（DataX 运行依赖）和 MySQL 客户端（SQL SHELL 任务依赖）
 RUN apt-get update -qq \
- && apt-get install -y --no-install-recommends python3 \
+ && apt-get install -y --no-install-recommends python3 default-mysql-client \
  && ln -sf /usr/bin/python3 /usr/bin/python \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

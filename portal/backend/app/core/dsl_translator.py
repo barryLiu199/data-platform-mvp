@@ -60,11 +60,41 @@ def _build_datax_shell_script(config: Dict[str, Any]) -> str:
     return script
 
 
+def _build_sql_shell_script(portal_ds: Any, sql_text: str) -> str:
+    """把 SQL 组件翻译成 mysql CLI SHELL 脚本
+
+    使用 base64 编码 SQL 内容，避免 DS 对 $ 符号的参数替换
+    （DS 3.2.2 会把 $[*] 等 JSON PATH 表达式误认为参数表达式）。
+    """
+    import base64
+    import shlex
+    host = portal_ds.host or "localhost"
+    port = portal_ds.port or 3306
+    user = portal_ds.username or "root"
+    password = portal_ds.password or ""
+    database = portal_ds.database_name or ""
+    # 前置 collation 设置
+    full_sql = f"SET collation_connection = 'utf8mb4_0900_ai_ci';\n{sql_text}"
+    b64 = base64.b64encode(full_sql.encode("utf-8")).decode("ascii")
+    safe_password = shlex.quote(password)
+    script = (
+        "set -e\n"
+        "SQL_FILE=/tmp/portal_sql_$$.sql\n"
+        f"echo '{b64}' | base64 -d > \"$SQL_FILE\"\n"
+        f"echo \"[Portal] executing SQL on {database}@{host}:{port}\"\n"
+        f"mysql --default-character-set=utf8mb4 -h {shlex.quote(host)} -P {port} -u {shlex.quote(user)} -p{safe_password} {shlex.quote(database)} < \"$SQL_FILE\"\n"
+        "echo \"[Portal] SQL executed successfully\"\n"
+        "rm -f \"$SQL_FILE\"\n"
+    )
+    return script
+
+
 def translate_component_to_task(
     component: Any,
     task_code: int,
     task_name: Optional[str] = None,
     datasource_lookup: Optional[Dict[int, Any]] = None,
+    ds_datasource_id_map: Optional[Dict[int, int]] = None,
 ) -> Dict[str, Any]:
     """单个 Component → DS Task Definition JSON
 
@@ -87,26 +117,46 @@ def translate_component_to_task(
     if ctype == "sql":
         ds_id = cfg.get("datasource_id")
         ds_type = "MYSQL"
+        portal_ds = None
         if datasource_lookup and ds_id and ds_id in datasource_lookup:
-            ds_type = _datasource_type_for_ds(datasource_lookup[ds_id].type)
+            portal_ds = datasource_lookup[ds_id]
+            ds_type = _datasource_type_for_ds(portal_ds.type)
         sql_text = cfg.get("sql", "")
-        # 判断 SQL 类型: SELECT 为 query(0),其他为 non-query(1)
-        sql_type = "0" if sql_text.strip().lower().startswith("select") else "1"
-        base["taskType"] = "SQL"
-        base["taskParams"] = {
-            "type": ds_type,
-            "datasource": ds_id,
-            "sql": sql_text,
-            "sqlType": sql_type,
-            "preStatements": cfg.get("preStatements", []),
-            "postStatements": cfg.get("postStatements", []),
-            "displayRows": 10,
-            "localParams": cfg.get("localParams", []),
-            "resourceList": [],
-        }
-        if cfg.get("timeout"):
-            base["timeoutFlag"] = "OPEN"
-            base["timeout"] = int(cfg["timeout"]) // 60 or 1  # DS timeout 单位是分钟
+
+        # 使用 SHELL 任务执行 SQL（避免 DS SQL 任务对 $ 等符号的参数替换）
+        if portal_ds and ds_type == "MYSQL":
+            # 通过 mysql CLI 执行，完全绕过 DS 的 SQL 参数解析
+            shell_script = _build_sql_shell_script(portal_ds, sql_text)
+            base["taskType"] = "SHELL"
+            base["taskParams"] = {
+                "rawScript": shell_script,
+                "resourceList": [],
+                "localParams": cfg.get("localParams", []),
+            }
+            if cfg.get("timeout"):
+                base["timeoutFlag"] = "OPEN"
+                base["timeout"] = int(cfg["timeout"]) // 60 or 1
+        else:
+            # 回退到 DS 原生 SQL 任务
+            actual_ds_id = ds_id
+            if ds_datasource_id_map and ds_id and ds_id in ds_datasource_id_map:
+                actual_ds_id = ds_datasource_id_map[ds_id]
+            sql_type = "0" if sql_text.strip().lower().startswith("select") else "1"
+            base["taskType"] = "SQL"
+            base["taskParams"] = {
+                "type": ds_type,
+                "datasource": actual_ds_id,
+                "sql": sql_text,
+                "sqlType": sql_type,
+                "preStatements": cfg.get("preStatements", []),
+                "postStatements": cfg.get("postStatements", []),
+                "displayRows": 10,
+                "localParams": cfg.get("localParams", []),
+                "resourceList": [],
+            }
+            if cfg.get("timeout"):
+                base["timeoutFlag"] = "OPEN"
+                base["timeout"] = int(cfg["timeout"]) // 60 or 1  # DS timeout 单位是分钟
 
     elif ctype == "python":
         base["taskType"] = "PYTHON"
@@ -195,6 +245,7 @@ def translate_workflow(
     components_by_id: Dict[int, Any],
     task_codes: List[int],
     datasource_lookup: Optional[Dict[int, Any]] = None,
+    ds_datasource_id_map: Optional[Dict[int, int]] = None,
 ) -> Dict[str, Any]:
     """Workflow → DS Process Definition save 所需的 4 个字段
 
@@ -218,7 +269,7 @@ def translate_workflow(
         if not comp:
             raise ValueError(f"组件 {cid} 不存在")
         step_name = step.get("name") or comp.name
-        td = translate_component_to_task(comp, tcode, task_name=step_name, datasource_lookup=datasource_lookup)
+        td = translate_component_to_task(comp, tcode, task_name=step_name, datasource_lookup=datasource_lookup, ds_datasource_id_map=ds_datasource_id_map)
         task_defs.append(td)
 
     relations = build_task_relations(task_codes)
@@ -313,6 +364,7 @@ def translate_workflow_dag(
     components_by_id: Dict[int, Any],
     task_codes: List[int],
     datasource_lookup: Optional[Dict[int, Any]] = None,
+    ds_datasource_id_map: Optional[Dict[int, int]] = None,
 ) -> Dict[str, Any]:
     """DAG 版本: Workflow → DS Process Definition payload"""
     dag = workflow.dag_json
@@ -340,6 +392,7 @@ def translate_workflow_dag(
             comp, tcode,
             task_name=node.get("name") or comp.name,
             datasource_lookup=datasource_lookup,
+            ds_datasource_id_map=ds_datasource_id_map,
         )
         task_defs.append(td)
 

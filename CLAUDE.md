@@ -141,7 +141,8 @@ data-platform-mvp/
 
 | 组件 | 用在哪些页面 | 调用的 API |
 |------|------------|-----------|
-| `CodeEditor.vue` | SqlDev, WorkflowEditor | /metadata/tables, /metadata/columns（自动补全） |
+| `CodeEditor.vue` | SqlDev, WorkflowEditor | /metadata/tables, /metadata/columns（自动补全），暴露 formatDocument（sql-formatter 格式化） |
+| `SqlParamModal.vue` | SqlDev | —（纯前端组件，检测 SQL 中 ${xxx} 参数，弹窗填值，类型感知输入+日期快捷+自动加引号+SQL预览） |
 | `SyncTaskCanvas.vue` | SqlDev | /sync-tasks CRUD, /datasources, /metadata/* |
 | `SyncTaskWizard.vue` | SqlDev | /sync-tasks, /datasources, /metadata/*, /components |
 | `FieldMappingCanvas.vue` | SyncTaskCanvas, SyncTaskWizard | — |

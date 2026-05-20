@@ -1,4 +1,7 @@
+import logging
 from typing import Optional, List, Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -425,8 +428,8 @@ async def publish_as_workflow(
             from app.core.ds_client import get_ds_client
             try:
                 await get_ds_client().delete_process_definition(pd_code)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("orphaned DS process %s: cleanup failed: %s", pd_code, e)
         raise HTTPException(status_code=502, detail=f"DS 同步失败：{e}")
 
     db.commit()

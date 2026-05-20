@@ -309,6 +309,32 @@ class DSClient:
             "startParams": start_params,
         })
 
+    async def create_or_find_datasource(self, name: str, db_type: str, host: str, port: int,
+                                         database: str, username: str, password: str) -> Optional[int]:
+        """在 DS 中创建或查找数据源，返回 DS datasource id"""
+        # 先搜索已有
+        data = await self.get("/datasources", params={"pageNo": 1, "pageSize": 100})
+        if data and data.get("totalList"):
+            for ds in data["totalList"]:
+                if ds.get("name") == name:
+                    return ds["id"]
+        # 创建新的
+        other = {"useUnicode": "true", "characterEncoding": "UTF-8", "useSSL": "false", "serverTimezone": "Asia/Shanghai"}
+        resp = await self._request("POST", "/datasources", json={
+            "type": db_type.upper(),
+            "name": name,
+            "note": f"Auto-registered from Portal: {name}",
+            "host": host,
+            "port": port,
+            "database": database,
+            "userName": username,
+            "password": password,
+            "other": other,
+        })
+        if isinstance(resp, dict):
+            return resp.get("id")
+        return None
+
     async def close(self):
         await self._client.aclose()
 
