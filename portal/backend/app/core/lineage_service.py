@@ -63,9 +63,24 @@ def _parse_sql_tables(sql_text: str) -> Tuple[List[str], List[str]]:
                     n = t.sql(dialect="mysql", identify=False).replace("`", "").replace('"', '')
                     sources.append(n)
 
-        # 去重
-        sources = list(dict.fromkeys(s for s in sources if s))
-        targets = list(dict.fromkeys(t for t in targets if t))
+        # 去重 + 过滤非表名（如 JSON_TABLE 函数、别名等）
+        def _is_valid_table(name: str) -> bool:
+            if not name:
+                return False
+            # 过滤包含括号、空格、关键字的误识别
+            if '(' in name or ')' in name or ' ' in name:
+                return False
+            # 过滤 AS 别名（如 "ads.dim_brand AS b"）
+            if ' AS ' in name.upper():
+                return False
+            # 只允许 字母/数字/下划线/点（schema.table）
+            import re as _re
+            if not _re.match(r'^[\w][\w.]*$', name):
+                return False
+            return True
+
+        sources = list(dict.fromkeys(s for s in sources if _is_valid_table(s)))
+        targets = list(dict.fromkeys(t for t in targets if _is_valid_table(t)))
         return sources, targets
 
     except Exception:
