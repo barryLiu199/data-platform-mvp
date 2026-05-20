@@ -31,61 +31,72 @@ def _infer_layer(table_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _parse_sql_tables(sql_text: str) -> Tuple[List[str], List[str]]:
-    """解析 SQL 返回 (source_tables, target_tables)"""
+    """解析 SQL 返回 (source_tables, target_tables)
+
+    策略：sqlglot AST 解析 + regex 兜底，取并集。
+    sqlglot 在处理 MySQL @变量、JSON_TABLE 等特殊语法时可能截断 AST，
+    regex 能补充 sqlglot 遗漏的表名。
+    """
+    def _is_valid_table(name: str) -> bool:
+        if not name:
+            return False
+        # 只允许 字母/数字/下划线/点（schema.table）
+        if not re.match(r'^[\w][\w.]*$', name):
+            return False
+        # 过滤 MySQL 函数名（JSON_TABLE 等）
+        if name.upper() in ('JSON_TABLE', 'DUAL', 'INFORMATION_SCHEMA'):
+            return False
+        return True
+
+    # 1. regex 解析（始终执行，作为基础）
+    regex_sources, regex_targets = _parse_sql_tables_regex(sql_text)
+
+    # 2. sqlglot AST 解析（增强）
+    ast_sources: List[str] = []
+    ast_targets: List[str] = []
     try:
         import sqlglot
         from sqlglot import exp
 
-        sources: List[str] = []
-        targets: List[str] = []
+        def _extract_table_name(tbl: exp.Table) -> Optional[str]:
+            name = tbl.name
+            if not name:
+                return None
+            db = tbl.db
+            return f"{db}.{name}" if db else name
 
         for stmt in sqlglot.parse(sql_text, error_level=sqlglot.ErrorLevel.IGNORE):
             if stmt is None:
                 continue
-            # 提取目标表
             if isinstance(stmt, (exp.Insert, exp.Create)):
                 tbl = stmt.find(exp.Table)
                 if tbl:
-                    name = tbl.sql(dialect="mysql", identify=False)
-                    # 去掉反引号
-                    name = name.replace("`", "").replace('"', '')
-                    targets.append(name)
-                # INSERT ... SELECT 的 FROM 部分
-                select = stmt.find(exp.Select)
-                if select:
-                    for t in select.find_all(exp.Table):
-                        n = t.sql(dialect="mysql", identify=False).replace("`", "").replace('"', '')
-                        if n not in targets:
-                            sources.append(n)
-            else:
-                # SELECT / 其他语句 — 所有引用表都算 source
+                    name = _extract_table_name(tbl)
+                    if name:
+                        ast_targets.append(name)
                 for t in stmt.find_all(exp.Table):
-                    n = t.sql(dialect="mysql", identify=False).replace("`", "").replace('"', '')
-                    sources.append(n)
-
-        # 去重 + 过滤非表名（如 JSON_TABLE 函数、别名等）
-        def _is_valid_table(name: str) -> bool:
-            if not name:
-                return False
-            # 过滤包含括号、空格、关键字的误识别
-            if '(' in name or ')' in name or ' ' in name:
-                return False
-            # 过滤 AS 别名（如 "ads.dim_brand AS b"）
-            if ' AS ' in name.upper():
-                return False
-            # 只允许 字母/数字/下划线/点（schema.table）
-            import re as _re
-            if not _re.match(r'^[\w][\w.]*$', name):
-                return False
-            return True
-
-        sources = list(dict.fromkeys(s for s in sources if _is_valid_table(s)))
-        targets = list(dict.fromkeys(t for t in targets if _is_valid_table(t)))
-        return sources, targets
-
+                    n = _extract_table_name(t)
+                    if n and n not in ast_targets:
+                        ast_sources.append(n)
+            elif isinstance(stmt, (exp.Delete, exp.Command)):
+                pass
+            else:
+                for t in stmt.find_all(exp.Table):
+                    n = _extract_table_name(t)
+                    if n:
+                        ast_sources.append(n)
     except Exception:
-        # sqlglot 解析失败 → 降级正则
-        return _parse_sql_tables_regex(sql_text)
+        pass
+
+    # 3. 合并（取并集）
+    all_sources = list(dict.fromkeys(regex_sources + ast_sources))
+    all_targets = list(dict.fromkeys(regex_targets + ast_targets))
+
+    # 4. 过滤
+    all_sources = [s for s in all_sources if _is_valid_table(s)]
+    all_targets = [t for t in all_targets if _is_valid_table(t)]
+
+    return all_sources, all_targets
 
 
 def _parse_sql_tables_regex(sql_text: str) -> Tuple[List[str], List[str]]:

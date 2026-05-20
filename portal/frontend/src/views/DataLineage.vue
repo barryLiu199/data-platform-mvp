@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <PageHeader title="数据血缘" description="以组件/任务为中心，追踪上下游表级数据流转">
+    <PageHeader title="数据血缘" description="选择 SQL 组件，追踪上下游表级数据流转">
       <template #actions>
         <a-button @click="handleRefresh" :loading="refreshing">
           <template #icon><icon-refresh /></template>
@@ -12,31 +12,19 @@
     <!-- 控制栏 -->
     <div class="glass-card control-bar">
       <a-select
-        v-model="entityType"
-        placeholder="实体类型"
-        style="width: 160px"
-        @change="onTypeChange"
-      >
-        <a-option value="component_sql">SQL 组件</a-option>
-        <a-option value="component_datax">DataX 组件</a-option>
-        <a-option value="sync_task">同步任务</a-option>
-        <a-option value="table">数据表</a-option>
-      </a-select>
-
-      <a-select
         v-model="entityId"
-        placeholder="选择实体"
-        style="width: 240px"
+        placeholder="选择 SQL 组件"
+        style="width: 280px"
         :loading="entitiesLoading"
         allow-search
-        :disabled="!entityType"
+        @change="handleQuery"
       >
         <a-option v-for="e in entities" :key="e.id" :value="String(e.id)">
           {{ e.name }}
         </a-option>
       </a-select>
 
-      <a-select v-model="depth" placeholder="展开深度" style="width: 120px">
+      <a-select v-model="depth" placeholder="展开深度" style="width: 120px" @change="handleQuery">
         <a-option :value="1">1 层</a-option>
         <a-option :value="2">2 层</a-option>
         <a-option :value="3">3 层</a-option>
@@ -48,11 +36,6 @@
           <template #unchecked>字段</template>
         </a-switch>
       </a-tooltip>
-
-      <a-button type="primary" @click="handleQuery" :loading="graphLoading" :disabled="!entityId">
-        <template #icon><icon-search /></template>
-        查询
-      </a-button>
     </div>
 
     <!-- 画布 -->
@@ -79,8 +62,8 @@
       <div class="canvas-stats">
         <a-tag size="small" color="blue">{{ graphStats.total_nodes }} 表</a-tag>
         <a-tag size="small" color="cyan">{{ graphStats.total_edges }} 关系</a-tag>
-        <a-tag size="small" color="green">↑{{ graphStats.upstream_depth }} 层</a-tag>
-        <a-tag size="small" color="orange">↓{{ graphStats.downstream_depth }} 层</a-tag>
+        <a-tag size="small" color="green">{{ graphStats.upstream_depth }} 层上游</a-tag>
+        <a-tag size="small" color="orange">{{ graphStats.downstream_depth }} 层下游</a-tag>
       </div>
     </div>
 
@@ -88,15 +71,15 @@
     <div class="glass-card empty-card" v-else-if="!graphLoading && queried">
       <div class="empty-state">
         <p>暂无血缘数据</p>
-        <p class="text-muted">该实体尚未解析到表级血缘关系，请先刷新血缘数据</p>
+        <p class="text-muted">该组件尚未解析到表级血缘关系，请先点击"刷新血缘"</p>
       </div>
     </div>
 
     <!-- 初始引导 -->
     <div class="glass-card empty-card" v-else-if="!graphLoading && !queried">
       <div class="empty-state">
-        <p>选择一个实体开始探索血缘</p>
-        <p class="text-muted">从左侧下拉框选择组件、任务或表名，点击"查询"展示上下游数据流</p>
+        <p>选择一个 SQL 组件开始探索血缘</p>
+        <p class="text-muted">从上方下拉框选择组件，自动展示上下游数据流转关系</p>
       </div>
     </div>
 
@@ -112,7 +95,7 @@ import { ref, onMounted } from 'vue'
 import { VueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
-import { IconRefresh, IconSearch } from '@arco-design/web-vue/es/icon'
+import { IconRefresh } from '@arco-design/web-vue/es/icon'
 import { Message } from '@arco-design/web-vue'
 import PageHeader from '../components/PageHeader.vue'
 import LineageTableNode from '../components/lineage/LineageTableNode.vue'
@@ -123,7 +106,6 @@ interface FlowNode { id: string; type: string; position: { x: number; y: number 
 interface FlowEdge { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string; label?: string; animated?: boolean; data?: any; style?: any }
 
 // 控制栏状态
-const entityType = ref('')
 const entityId = ref('')
 const depth = ref(2)
 const fieldLevel = ref(false)
@@ -141,14 +123,10 @@ const graphStats = ref({ total_nodes: 0, total_edges: 0, upstream_depth: 0, down
 // 高亮
 const highlightedNodes = ref<Set<string>>(new Set())
 
-async function onTypeChange() {
-  entityId.value = ''
-  entities.value = []
-  if (!entityType.value) return
-
+async function loadEntities() {
   entitiesLoading.value = true
   try {
-    const res: any = await getLineageEntities(entityType.value)
+    const res: any = await getLineageEntities('component_sql')
     entities.value = res || []
   } catch { entities.value = [] }
   entitiesLoading.value = false
@@ -157,18 +135,12 @@ async function onTypeChange() {
 async function handleQuery() {
   if (!entityId.value) return
 
-  // 把前端的 entityType 映射到后端的 entity_type
-  let backendType = entityType.value
-  if (backendType === 'component_sql' || backendType === 'component_datax') {
-    backendType = 'component'
-  }
-
   graphLoading.value = true
   queried.value = true
   clearHighlight()
 
   try {
-    const res: any = await getLineageGraph(backendType, entityId.value, {
+    const res: any = await getLineageGraph('component', entityId.value, {
       depth: depth.value,
       field_level: fieldLevel.value,
     })
@@ -193,7 +165,8 @@ async function handleRefresh() {
   try {
     const res: any = await refreshLineage()
     Message.success(`血缘刷新完成：${res.edges_created} 条关系，耗时 ${res.duration_ms}ms`)
-    // 刷新后如果已有查询条件，重新查询
+    // 重新加载组件列表（可能有新上线的组件）
+    await loadEntities()
     if (entityId.value) await handleQuery()
   } catch { /* axios 拦截器会提示 */ }
   refreshing.value = false
@@ -230,14 +203,12 @@ function onNodeClick({ node }: { node: FlowNode }) {
 
   highlightedNodes.value = reachable
 
-  // 更新节点样式
   flowNodes.value = flowNodes.value.map(n => ({
     ...n,
     data: { ...n.data, highlighted: reachable.has(n.id), dimmed: !reachable.has(n.id) },
     style: reachable.has(n.id) ? {} : { opacity: 0.3 },
   }))
 
-  // 更新边样式
   const reachableEdges = new Set<string>()
   for (const e of flowEdges.value) {
     if (reachable.has(e.source) && reachable.has(e.target)) {
@@ -269,7 +240,7 @@ function clearHighlight() {
 }
 
 onMounted(() => {
-  // 页面初始化不自动查询，等用户选择
+  loadEntities()
 })
 </script>
 
@@ -288,7 +259,7 @@ onMounted(() => {
 .canvas-wrapper {
   padding: 0;
   position: relative;
-  height: calc(100vh - 280px);
+  height: calc(100vh - 260px);
   min-height: 400px;
 }
 .lineage-canvas {
@@ -312,7 +283,6 @@ onMounted(() => {
 </style>
 
 <style>
-/* Vue Flow 全局样式覆盖 — 不能 scoped */
 @import '@vue-flow/core/dist/style.css';
 @import '@vue-flow/core/dist/theme-default.css';
 @import '@vue-flow/controls/dist/style.css';
