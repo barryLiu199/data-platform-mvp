@@ -137,11 +137,6 @@
         </div>
         <div class="header-right">
           <a-space :size="16">
-            <div class="search-box" @click="openSearch">
-              <icon-search style="color: #86909C; font-size: 14px;" />
-              <span class="search-placeholder">搜索页面...</span>
-              <kbd class="kbd">&#8984;K</kbd>
-            </div>
             <a-dropdown trigger="click" @popup-visible-change="onNotifToggle">
               <a-badge :count="unreadCount" dot :offset="[-4, 4]">
                 <div class="icon-btn">
@@ -180,43 +175,6 @@
         </div>
       </a-layout-header>
 
-      <!-- 全局搜索面板 -->
-      <Teleport to="body">
-        <div v-if="searchVisible" class="search-overlay" @click.self="searchVisible = false">
-          <div class="search-modal">
-            <div class="search-input-wrap">
-              <icon-search style="color: #86909C; font-size: 16px; flex-shrink: 0;" />
-              <input
-                ref="searchInputRef"
-                v-model="searchQuery"
-                class="search-input"
-                placeholder="搜索页面..."
-                @keydown.escape="searchVisible = false"
-                @keydown.enter="goFirst"
-                @keydown.down.prevent="moveDown"
-                @keydown.up.prevent="moveUp"
-              />
-              <kbd class="kbd">ESC</kbd>
-            </div>
-            <div class="search-results" v-if="filteredPages.length">
-              <div
-                v-for="(p, idx) in filteredPages"
-                :key="p.path"
-                class="search-result-item"
-                :class="{ active: idx === activeIdx }"
-                @click="goTo(p.path)"
-                @mouseenter="activeIdx = idx"
-              >
-                <span class="result-group">{{ p.group }}</span>
-                <span class="result-name">{{ p.name }}</span>
-                <span class="result-path">{{ p.path }}</span>
-              </div>
-            </div>
-            <div v-else-if="searchQuery" class="search-empty">无匹配页面</div>
-          </div>
-        </div>
-      </Teleport>
-
       <!-- 内容 -->
       <a-layout-content class="layout-content">
         <router-view v-slot="{ Component }">
@@ -230,7 +188,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { getNotifications, markNotifRead, markAllRead as apiMarkAllRead } from '../api'
@@ -238,7 +196,7 @@ import {
   IconDashboard, IconLink, IconSync,
   IconCalendar, IconFile, IconApps, IconRelation,
   IconComputer, IconNotification, IconDown, IconUser, IconExport,
-  IconSearch, IconSettings, IconHistory, IconCode, IconBranch,
+  IconSettings, IconHistory, IconCode, IconBranch,
   IconList, IconCodeBlock, IconIdcard, IconLock,
 } from '@arco-design/web-vue/es/icon'
 
@@ -285,74 +243,9 @@ function onCollapse(val: boolean) { collapsed.value = val }
 function onMenuClick(key: string) { router.push(key) }
 function handleLogout() { userStore.logout(); router.push('/login') }
 
-// ===== 全局搜索 =====
-const searchVisible = ref(false)
-const searchQuery = ref('')
-const activeIdx = ref(0)
-const searchInputRef = ref<HTMLInputElement | null>(null)
-
-const allPages = [
-  { name: '工作台', path: '/dashboard', group: '首页' },
-  { name: '工作流开发', path: '/workflows', group: '数据开发' },
-  { name: '组件开发', path: '/sql-dev', group: '数据开发' },
-  { name: '运行实例', path: '/scheduler/history', group: '运维中心' },
-  { name: '监控规则', path: '/alerts', group: '运维中心' },
-  { name: '数据目录', path: '/data-assets', group: '数据资产' },
-  { name: '词根管理', path: '/field-assets', group: '数据资产' },
-  { name: '数据血缘', path: '/lineage', group: '数据资产' },
-  { name: '数据源管理', path: '/datasources', group: '系统管理' },
-  { name: '系统监控', path: '/monitor', group: '系统管理' },
-  { name: '用户管理', path: '/admin/users', group: '系统管理' },
-  { name: '角色管理', path: '/admin/roles', group: '系统管理' },
-  { name: '通知配置', path: '/admin/notify', group: '系统管理' },
-  { name: 'SSO 配置', path: '/admin/sso', group: '系统管理' },
-]
-
-const filteredPages = computed(() => {
-  if (!searchQuery.value) return allPages
-  const q = searchQuery.value.toLowerCase()
-  return allPages.filter(p => p.name.toLowerCase().includes(q) || p.group.toLowerCase().includes(q) || p.path.includes(q))
-})
-
-function openSearch() {
-  searchQuery.value = ''
-  activeIdx.value = 0
-  searchVisible.value = true
-  nextTick(() => searchInputRef.value?.focus())
-}
-
-function goTo(path: string) {
-  searchVisible.value = false
-  router.push(path)
-}
-
-function goFirst() {
-  if (filteredPages.value.length > 0) goTo(filteredPages.value[activeIdx.value].path)
-}
-
-function moveDown() {
-  activeIdx.value = Math.min(activeIdx.value + 1, filteredPages.value.length - 1)
-}
-
-function moveUp() {
-  activeIdx.value = Math.max(activeIdx.value - 1, 0)
-}
-
-function handleGlobalKey(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-    e.preventDefault()
-    openSearch()
-  }
-}
-
 onMounted(() => {
   userStore.fetchUser()
   loadNotifs()
-  document.addEventListener('keydown', handleGlobalKey)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleGlobalKey)
 })
 </script>
 
@@ -425,29 +318,6 @@ onUnmounted(() => {
 }
 
 .header-left, .header-right { display: flex; align-items: center; }
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #F7F8FA;
-  border: 1px solid #E5E8ED;
-  border-radius: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-.search-box:hover { border-color: #C9CDD4; }
-.search-placeholder { color: #C9CDD4; font-size: 13px; }
-.kbd {
-  background: #F2F3F5;
-  border: 1px solid #E5E8ED;
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-size: 11px;
-  color: #86909C;
-  font-family: monospace;
-}
 
 .icon-btn {
   width: 32px; height: 32px;
@@ -537,75 +407,4 @@ onUnmounted(() => {
 .page-leave-active { transition: opacity 0.1s ease, transform 0.1s ease; }
 .page-enter-from { opacity: 0; transform: translateY(6px); }
 .page-leave-to { opacity: 0; transform: translateY(-4px); }
-
-/* 全局搜索面板 */
-.search-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 1000;
-  display: flex;
-  justify-content: center;
-  padding-top: 120px;
-  animation: fadeIn 0.12s ease;
-}
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-.search-modal {
-  width: 520px;
-  max-height: 420px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: slideUp 0.15s ease;
-}
-@keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-.search-input-wrap {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  border-bottom: 1px solid #E5E8ED;
-}
-.search-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  font-size: 15px;
-  color: #1D2129;
-  background: transparent;
-}
-.search-input::placeholder { color: #C9CDD4; }
-
-.search-results {
-  overflow-y: auto;
-  padding: 8px 0;
-  flex: 1;
-}
-.search-result-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 18px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.search-result-item:hover,
-.search-result-item.active { background: #F2F3F5; }
-.result-group {
-  font-size: 11px;
-  color: #86909C;
-  background: #F7F8FA;
-  padding: 2px 6px;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-.result-name { font-size: 14px; color: #1D2129; font-weight: 500; }
-.result-path { margin-left: auto; font-size: 12px; color: #C9CDD4; font-family: monospace; }
-
-.search-empty { padding: 32px 18px; text-align: center; color: #86909C; font-size: 13px; }
 </style>
