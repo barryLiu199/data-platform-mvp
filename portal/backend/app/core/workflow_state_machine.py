@@ -14,7 +14,7 @@ DELETABLE_STATUSES: Set[str] = {STATUS_DRAFT, STATUS_OFFLINE}
 
 # Valid transitions: current_status -> set of allowed target statuses
 _TRANSITIONS = {
-    STATUS_DRAFT: {STATUS_TESTED},
+    STATUS_DRAFT: {STATUS_TESTED, STATUS_ONLINE},
     STATUS_TESTED: {STATUS_ONLINE, STATUS_DRAFT},
     STATUS_ONLINE: {STATUS_OFFLINE},
     STATUS_OFFLINE: {STATUS_TESTED, STATUS_ONLINE},
@@ -35,8 +35,8 @@ def validate_test(status: str) -> str | None:
 
 def validate_publish(status: str) -> str | None:
     """Validate workflow can be published. Returns error message or None."""
-    if status != STATUS_TESTED:
-        return f"只有 tested 状态可发布,当前 {status},请先测试"
+    if status not in {STATUS_DRAFT, STATUS_TESTED, STATUS_OFFLINE}:
+        return f"状态 {status} 下不允许发布"
     return None
 
 
@@ -49,8 +49,8 @@ def validate_offline(status: str) -> str | None:
 
 def validate_run(status: str) -> str | None:
     """Validate workflow can be run. Returns error message or None."""
-    if status not in {STATUS_ONLINE, STATUS_TESTED}:
-        return f"状态 {status} 下不允许运行,需先测试/发布"
+    if status not in {STATUS_DRAFT, STATUS_ONLINE, STATUS_TESTED}:
+        return f"状态 {status} 下不允许运行"
     return None
 
 

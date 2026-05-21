@@ -8,7 +8,7 @@ import DagNodePanel from '../components/dag/DagNodePanel.vue'
 import DagToolbar from '../components/dag/DagToolbar.vue'
 import ScheduleModal from '../components/ScheduleModal.vue'
 import ComplementModal from '../components/ComplementModal.vue'
-import { getWorkflow, createWorkflow, updateWorkflow, testWorkflow, publishWorkflow, runWorkflow, getProjects, getWorkflowVersions, rollbackWorkflowVersion } from '../api'
+import { getWorkflow, createWorkflow, updateWorkflow, testWorkflow, publishWorkflow, offlineWorkflow, runWorkflow, getProjects, getWorkflowVersions, rollbackWorkflowVersion } from '../api'
 
 interface DagNode { id: string; component_id: number; type?: string; name: string; position: { x: number; y: number }; skip: boolean }
 interface DagEdge { id: string; source: string; target: string }
@@ -210,6 +210,20 @@ async function handlePublish() {
   } catch (e: any) { Message.error(e?.response?.data?.detail || '发布失败') }
 }
 
+async function handleToggleOnline() {
+  if (!workflowId.value) return
+  try {
+    if (workflowStatus.value === 'online') {
+      await offlineWorkflow(workflowId.value)
+      Message.success('已下线')
+    } else {
+      await publishWorkflow(workflowId.value)
+      Message.success('已上线')
+    }
+    await loadWorkflow()
+  } catch (e: any) { Message.error(e?.response?.data?.detail || '操作失败') }
+}
+
 const runParamsVisible = ref(false)
 const runParamsOverride = ref<{ prop: string; value: string }[]>([])
 
@@ -313,6 +327,7 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
       @save="handleSave" @test="handleTest" @publish="handlePublish"
       @run="handleRun" @back="handleBack" @auto-layout="handleAutoLayout"
       @versions="openVersionDrawer" @complement="complementVisible = true"
+      @toggle-online="handleToggleOnline"
     />
     <div class="workflow-editor__meta">
       <a-select

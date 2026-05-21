@@ -9,6 +9,7 @@ const emit = defineEmits<{
   (e: 'autoLayout'): void
   (e: 'versions'): void
   (e: 'complement'): void
+  (e: 'toggleOnline'): void
 }>()
 
 const statusMap: Record<string, { text: string; color: string }> = {
@@ -38,6 +39,16 @@ const statusMap: Record<string, { text: string; color: string }> = {
       <button class="dag-toolbar__btn dag-toolbar__btn--primary" @click="emit('publish')">发布</button>
       <button class="dag-toolbar__btn" @click="emit('run')">运行</button>
       <button v-if="dsProcessCode" class="dag-toolbar__btn" @click="emit('complement')">补数</button>
+      <button
+        v-if="status === 'online'"
+        class="dag-toolbar__btn dag-toolbar__btn--danger"
+        @click="emit('toggleOnline')"
+      >下线</button>
+      <button
+        v-else-if="status === 'offline' || status === 'tested'"
+        class="dag-toolbar__btn dag-toolbar__btn--success"
+        @click="emit('toggleOnline')"
+      >上线</button>
     </div>
   </div>
 </template>
@@ -52,6 +63,10 @@ const statusMap: Record<string, { text: string; color: string }> = {
 .dag-toolbar__btn:hover { border-color: #165dff; color: #165dff; }
 .dag-toolbar__btn--primary { background: #165dff; color: #fff; border-color: #165dff; }
 .dag-toolbar__btn--primary:hover { background: #4080ff; }
+.dag-toolbar__btn--success { background: #00b42a; color: #fff; border-color: #00b42a; }
+.dag-toolbar__btn--success:hover { background: #23c343; }
+.dag-toolbar__btn--danger { background: #f53f3f; color: #fff; border-color: #f53f3f; }
+.dag-toolbar__btn--danger:hover { background: #f76560; }
 .dag-toolbar__btn--back { border: none; color: #666; }
 .dag-toolbar__btn--back:hover { color: #165dff; }
 </style>

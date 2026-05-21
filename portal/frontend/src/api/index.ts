@@ -226,6 +226,7 @@ export const runWorkflow = (id: number, params?: Record<string, string>) => api.
 export const scheduleWorkflowOnline = (id: number) => api.post(`/workflows/${id}/schedule/online`)
 export const scheduleWorkflowOffline = (id: number) => api.post(`/workflows/${id}/schedule/offline`)
 export const cronPreview = (cron_expression: string) => api.post('/workflows/cron-preview', { cron_expression })
+export const batchWorkflowAction = (ids: number[], action: string) => api.post('/workflows/batch', { ids, action })
 export const getScheduledWorkflows = () => api.get('/workflows/scheduled')
 export const getWorkflowVersions = (id: number) => api.get(`/workflows/${id}/versions`)
 export const getWorkflowVersion = (id: number, verId: number) => api.get(`/workflows/${id}/versions/${verId}`)

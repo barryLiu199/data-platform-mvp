@@ -34,7 +34,8 @@ def _connect_mysql(ds: DataSource, db_override: Optional[str] = None):
         cursorclass=pymysql.cursors.DictCursor,
     )
     with conn.cursor() as cur:
-        cur.execute("SET NAMES utf8mb4 COLLATE utf8mb4_0900_ai_ci")
+        cur.execute("SET NAMES utf8mb4")
+        cur.execute("SET character_set_results = utf8mb4")
     return conn
 
 

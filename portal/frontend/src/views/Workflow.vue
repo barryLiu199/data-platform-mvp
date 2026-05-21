@@ -48,9 +48,32 @@
       <span v-for="t in allTags" :key="t" class="tag-chip" :class="{ active: tagFilter === t }" @click="setTag(t)">{{ t }}</span>
     </div>
 
+    <!-- 批量操作工具栏 -->
+    <div v-if="selectedIds.length > 0" class="batch-bar">
+      <span class="batch-count">已选 {{ selectedIds.length }} 项</span>
+      <a-space :size="8">
+        <a-button size="small" type="primary" @click="batchAction('publish')">批量上线</a-button>
+        <a-button size="small" status="warning" @click="batchAction('offline')">批量下线</a-button>
+        <a-popconfirm content="确定要删除选中的工作流吗？不可恢复" @ok="batchAction('delete')">
+          <a-button size="small" status="danger">批量删除</a-button>
+        </a-popconfirm>
+        <a-button size="small" @click="selectedIds = []">取消选择</a-button>
+      </a-space>
+    </div>
+
     <!-- 表格 -->
     <div class="glass-card table-card">
-      <a-table :data="items" :loading="loading" :bordered="false" :pagination="false" stripe :scroll="{ x: 1100 }">
+      <a-table
+        :data="items"
+        :loading="loading"
+        :bordered="false"
+        :pagination="false"
+        stripe
+        :scroll="{ x: 1100 }"
+        :row-selection="{ type: 'checkbox', showCheckedAll: true, selectedRowKeys: selectedIds }"
+        @selection-change="onSelectionChange"
+        row-key="id"
+      >
         <template #columns>
           <a-table-column title="工作流名" :width="200">
             <template #cell="{ record }">
@@ -178,7 +201,7 @@ import {
   testWorkflow, publishWorkflow, offlineWorkflow, runWorkflow,
   scheduleWorkflowOnline, scheduleWorkflowOffline,
   getProjects,
-  exportWorkflows,
+  exportWorkflows, batchWorkflowAction,
 } from '../api'
 import { relativeDate, formatDuration } from '../utils/time'
 
@@ -220,6 +243,29 @@ const tagFilter = ref('')
 const allTags = ref<string[]>([])
 const projectFilter = ref<number | undefined>(undefined)
 const projects = ref<ProjectItem[]>([])
+const selectedIds = ref<number[]>([])
+
+function onSelectionChange(keys: number[]) {
+  selectedIds.value = keys
+}
+
+async function batchAction(action: string) {
+  if (!selectedIds.value.length) return
+  try {
+    const res: any = await batchWorkflowAction(selectedIds.value, action)
+    const s = res.success?.length || 0
+    const f = res.failed?.length || 0
+    if (f === 0) {
+      Message.success(`批量${action === 'publish' ? '上线' : action === 'offline' ? '下线' : '删除'}成功 (${s}项)`)
+    } else {
+      Message.warning(`成功 ${s} 项，失败 ${f} 项`)
+    }
+    selectedIds.value = []
+    loadData()
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '批量操作失败')
+  }
+}
 const complementVisible = ref(false)
 const complementWfName = ref('')
 const complementCode = ref(0)
@@ -398,6 +444,18 @@ onMounted(async () => {
 <style scoped>
 .page { animation: fadeIn 0.3s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  margin-bottom: 8px;
+  background: var(--color-primary-light-1, #e8f3ff);
+  border-radius: 8px;
+  border: 1px solid var(--color-primary-light-3, #bedaff);
+}
+.batch-count { font-size: 13px; font-weight: 500; color: var(--color-primary); }
 
 .tag-filter-bar { display: flex; align-items: center; gap: 6px; margin-bottom: var(--space-4); flex-wrap: wrap; }
 .tag-filter-label { font-size: var(--font-size-xs); color: var(--color-text-tertiary); }

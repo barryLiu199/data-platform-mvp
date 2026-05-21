@@ -9,11 +9,15 @@ class MysqlAdapter(AdapterBase):
 
     def connect(self, db_override: Optional[str] = None):
         import pymysql
-        return pymysql.connect(
+        conn = pymysql.connect(
             host=self.ds.host, port=self.ds.port or 3306, user=self.ds.username,
             password=self.ds.password, database=db_override or self._database,
-            connect_timeout=5, charset="utf8mb4",
+            connect_timeout=5, charset="utf8mb4", use_unicode=True,
+            cursorclass=pymysql.cursors.DictCursor,
         )
+        with conn.cursor() as cur:
+            cur.execute("SET NAMES utf8mb4")
+        return conn
 
     def _table_exists_query(self, table: str) -> Tuple[str, tuple]:
         return (

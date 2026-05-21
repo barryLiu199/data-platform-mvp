@@ -689,6 +689,84 @@ async def cron_preview(body: dict):
     return {"times": times}
 
 
+# ===== 批量操作 =====
+@router.post("/batch")
+def batch_workflow_action(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(get_current_user),
+):
+    """批量操作工作流: action = publish | offline | delete"""
+    ids = body.get("ids", [])
+    action = body.get("action", "")
+    if not ids or action not in ("publish", "offline", "delete"):
+        raise HTTPException(400, "参数错误: 需要 ids 数组和 action(publish/offline/delete)")
+
+    results = {"success": [], "failed": []}
+    for wf_id in ids:
+        w = db.query(Workflow).filter(Workflow.id == wf_id).first()
+        if not w:
+            results["failed"].append({"id": wf_id, "error": "不存在"})
+            continue
+        if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
+            results["failed"].append({"id": wf_id, "error": "无权限"})
+            continue
+        try:
+            if action == "publish":
+                err = validate_publish(w.status)
+                if err:
+                    results["failed"].append({"id": wf_id, "error": err})
+                    continue
+                from app.core.workflow_publisher import WorkflowPublisher
+                publisher = WorkflowPublisher(db, w)
+                import asyncio
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(publisher.publish())
+                loop.close()
+                w.status = STATUS_ONLINE
+                db.commit()
+                results["success"].append(wf_id)
+            elif action == "offline":
+                err = validate_offline(w.status)
+                if err:
+                    results["failed"].append({"id": wf_id, "error": err})
+                    continue
+                from app.core.workflow_publisher import WorkflowPublisher
+                publisher = WorkflowPublisher(db, w)
+                import asyncio
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(publisher.unpublish())
+                loop.close()
+                w.status = STATUS_OFFLINE
+                w.schedule_status = "OFFLINE"
+                db.commit()
+                results["success"].append(wf_id)
+            elif action == "delete":
+                err = validate_delete(w.status)
+                if err:
+                    results["failed"].append({"id": wf_id, "error": err})
+                    continue
+                from app.core.workflow_publisher import WorkflowPublisher
+                from app.models.resource_access import SysResourceAccess
+                publisher = WorkflowPublisher(db, w)
+                import asyncio
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(publisher.cleanup())
+                loop.close()
+                db.query(SysResourceAccess).filter(
+                    SysResourceAccess.resource_type == "workflow",
+                    SysResourceAccess.resource_id == wf_id,
+                ).delete()
+                db.delete(w)
+                db.commit()
+                results["success"].append(wf_id)
+        except Exception as e:
+            db.rollback()
+            results["failed"].append({"id": wf_id, "error": str(e)})
+
+    return results
+
+
 # ===== 版本历史 =====
 @router.get("/{wf_id}/versions")
 def list_versions(
