@@ -122,7 +122,7 @@
         <div class="tab-bar">
           <div ref="tabsScrollRef" class="tabs-scroll">
             <div
-              v-for="tab in visibleTabs"
+              v-for="tab in tabs"
               :key="tab.key"
               :class="['tab-item', { active: activeKey === tab.key }]"
               @click="switchTab(tab.key)"
@@ -135,7 +135,7 @@
           <a-dropdown v-if="overflowTabs.length > 0" trigger="click">
             <a-button type="text" size="mini" class="overflow-btn">
               <icon-more />
-              <span style="font-size: 11px; margin-left: 2px;">{{ overflowTabs.length }}</span>
+              <span style="font-size: 11px; margin-left: 2px;">+{{ overflowTabs.length }}</span>
             </a-button>
             <template #content>
               <a-doption v-for="tab in overflowTabs" :key="tab.key" @click="switchTab(tab.key)">
@@ -446,7 +446,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import LangIcon from '../components/LangIcon.vue'
 import FileTreePanel from '../components/FileTreePanel.vue'
 import { TYPE_GROUPS_WITH_DATAX, type TreeNode } from '../composables/useFileTree'
@@ -527,31 +527,46 @@ function closeTab(key: string) { _closeTab(key); result.value = null }
 
 // ---- Tab 溢出管理 ----
 const tabsScrollRef = ref<HTMLElement | null>(null)
-const maxVisibleTabs = ref(100)
+const overflowStartIndex = ref(Infinity)
 
-const visibleTabs = computed(() => tabs.value.slice(0, maxVisibleTabs.value))
-const overflowTabs = computed(() => tabs.value.slice(maxVisibleTabs.value))
+const overflowTabs = computed(() => {
+  if (overflowStartIndex.value >= tabs.value.length) return []
+  return tabs.value.slice(overflowStartIndex.value)
+})
 
 function recalcVisibleTabs() {
-  if (!tabsScrollRef.value) return
-  // 用父级 .tab-bar 的宽度减去右侧按钮预留空间(约100px)来算
-  const parent = tabsScrollRef.value.parentElement
-  if (!parent) return
-  const available = parent.clientWidth - 100 // 留给溢出按钮+新增按钮
-  maxVisibleTabs.value = Math.max(1, Math.floor(available / 140))
+  const container = tabsScrollRef.value
+  if (!container) return
+  const containerWidth = container.clientWidth
+  if (containerWidth <= 0) return
+  const children = Array.from(container.children) as HTMLElement[]
+  let newStart = Infinity
+  for (let i = 0; i < children.length; i++) {
+    const el = children[i]
+    // 如果元素右边缘超出容器宽度，则从这里开始溢出
+    if (el.offsetLeft + el.offsetWidth > containerWidth) {
+      newStart = i
+      break
+    }
+  }
+  overflowStartIndex.value = newStart
 }
 
 let tabResizeObserver: ResizeObserver | null = null
 onMounted(() => {
-  tabResizeObserver = new ResizeObserver(() => recalcVisibleTabs())
+  tabResizeObserver = new ResizeObserver(() => {
+    nextTick(() => recalcVisibleTabs())
+  })
   nextTick(() => {
-    if (tabsScrollRef.value?.parentElement) {
-      tabResizeObserver!.observe(tabsScrollRef.value.parentElement)
+    if (tabsScrollRef.value) {
+      tabResizeObserver!.observe(tabsScrollRef.value)
     }
     recalcVisibleTabs()
   })
 })
 onUnmounted(() => { tabResizeObserver?.disconnect() })
+// 当 tab 数量变化时重新计算溢出
+watch(() => tabs.value.length, () => { nextTick(() => recalcVisibleTabs()) })
 
 // ---- 右侧面板 ----
 const activeRightPanel = ref<string | null>(null)
