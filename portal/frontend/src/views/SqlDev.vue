@@ -527,19 +527,28 @@ function closeTab(key: string) { _closeTab(key); result.value = null }
 
 // ---- Tab 溢出管理 ----
 const tabsScrollRef = ref<HTMLElement | null>(null)
-const maxVisibleTabs = ref(20)
+const maxVisibleTabs = ref(100)
 
 const visibleTabs = computed(() => tabs.value.slice(0, maxVisibleTabs.value))
 const overflowTabs = computed(() => tabs.value.slice(maxVisibleTabs.value))
 
+function recalcVisibleTabs() {
+  if (!tabsScrollRef.value) return
+  // 用父级 .tab-bar 的宽度减去右侧按钮预留空间(约100px)来算
+  const parent = tabsScrollRef.value.parentElement
+  if (!parent) return
+  const available = parent.clientWidth - 100 // 留给溢出按钮+新增按钮
+  maxVisibleTabs.value = Math.max(1, Math.floor(available / 140))
+}
+
 let tabResizeObserver: ResizeObserver | null = null
 onMounted(() => {
-  tabResizeObserver = new ResizeObserver((entries) => {
-    const containerWidth = entries[0]?.contentRect.width ?? 800
-    maxVisibleTabs.value = Math.max(1, Math.floor(containerWidth / 140))
-  })
+  tabResizeObserver = new ResizeObserver(() => recalcVisibleTabs())
   nextTick(() => {
-    if (tabsScrollRef.value) tabResizeObserver!.observe(tabsScrollRef.value)
+    if (tabsScrollRef.value?.parentElement) {
+      tabResizeObserver!.observe(tabsScrollRef.value.parentElement)
+    }
+    recalcVisibleTabs()
   })
 })
 onUnmounted(() => { tabResizeObserver?.disconnect() })
@@ -1092,7 +1101,16 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 .tab-close:hover { background: var(--color-danger); color: var(--color-text-inverse); }
 
 .add-tab-btn { flex-shrink: 0; margin: 0 4px; }
-.overflow-btn { flex-shrink: 0; margin: 0 2px; color: var(--color-text-2); }
+.overflow-btn {
+  flex-shrink: 0;
+  margin: 0 4px;
+  color: var(--color-text-1) !important;
+  background: var(--color-fill-2);
+  border-radius: 4px;
+  padding: 0 8px !important;
+  height: 26px;
+  font-weight: 500;
+}
 
 /* Toolbar */
 .ide-toolbar {
