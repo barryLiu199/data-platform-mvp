@@ -12,8 +12,9 @@ import json
 import logging
 from typing import Dict, Optional, Tuple
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
+from app.core.exceptions import ValidationError, ExternalServiceError
 
 from app.core.ds_client import DSClient
 from app.core.dsl_translator import translate_workflow, translate_workflow_dag
@@ -98,13 +99,13 @@ class WorkflowPublisher:
             dag_nodes = workflow.dag_json["nodes"]
             active_nodes = [n for n in dag_nodes if not n.get("skip", False)]
             if not active_nodes:
-                raise HTTPException(status_code=400, detail="DAG 中没有可执行的节点（全部被跳过）")
+                raise ValidationError("DAG 中没有可执行的节点（全部被跳过）")
             comp_ids = [n["component_id"] for n in active_nodes]
             return active_nodes, comp_ids, len(active_nodes)
         else:
             steps = workflow.steps_json or []
             if not steps:
-                raise HTTPException(status_code=400, detail="工作流为空")
+                raise ValidationError("工作流为空")
             comp_ids = [s.get("component_id") for s in steps]
             return None, comp_ids, len(steps)
 
@@ -165,7 +166,7 @@ class WorkflowPublisher:
     async def _gen_task_codes(self, node_count: int) -> list:
         task_codes = await self.ds.gen_task_codes(node_count)
         if not task_codes or len(task_codes) < node_count:
-            raise HTTPException(status_code=502, detail="DS 生成 task code 失败")
+            raise ExternalServiceError("DS 生成 task code 失败")
         return [int(x) for x in task_codes[:node_count]]
 
     def _translate(
@@ -214,7 +215,7 @@ class WorkflowPublisher:
                 global_params=global_params,
             )
             if not ok:
-                raise HTTPException(status_code=502, detail="DS 更新 process-definition 失败")
+                raise ExternalServiceError("DS 更新 process-definition 失败")
             pd_code = workflow.ds_process_code
         else:
             pd_code = await self.ds.save_process_definition(
@@ -223,12 +224,12 @@ class WorkflowPublisher:
                 global_params=global_params,
             )
             if not pd_code:
-                raise HTTPException(status_code=502, detail="DS 创建 process-definition 失败")
+                raise ExternalServiceError("DS 创建 process-definition 失败")
 
         # 上线 DS process definition
         ok = await self.ds.release_process_definition(pd_code, online=True)
         if not ok:
-            raise HTTPException(status_code=502, detail="DS 上线 process-definition 失败")
+            raise ExternalServiceError("DS 上线 process-definition 失败")
         return pd_code
 
     async def _sync_schedule(self, workflow: Workflow, pd_code: int) -> Optional[int]:

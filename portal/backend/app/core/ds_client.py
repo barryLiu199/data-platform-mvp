@@ -1,12 +1,38 @@
 """DolphinScheduler API 客户端单例"""
 import logging
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Protocol for dependency injection / testing ─────────────────────────────
+
+@runtime_checkable
+class SchedulerClientProtocol(Protocol):
+    """Abstract interface for the scheduling engine.
+
+    Allows swapping DolphinScheduler for Airflow/Argo or an in-memory fake.
+    All methods are async and return domain-level results (not raw HTTP).
+    """
+
+    async def gen_task_codes(self, count: int) -> Optional[list]: ...
+    async def save_process_definition(self, name, desc, task_def_json, task_rel_json, locations, **kw) -> Optional[int]: ...
+    async def update_process_definition(self, code, name, desc, task_def_json, task_rel_json, locations, **kw) -> bool: ...
+    async def release_process_definition(self, code, online: bool = True) -> bool: ...
+    async def delete_process_definition(self, code) -> bool: ...
+    async def find_schedule_by_pd_code(self, pd_code: int) -> Optional[dict]: ...
+    async def create_schedule(self, pd_code: int, cron: str) -> Optional[int]: ...
+    async def update_schedule(self, schedule_id: int, cron: str) -> bool: ...
+    async def schedule_online(self, schedule_id: int) -> bool: ...
+    async def schedule_offline(self, schedule_id: int) -> bool: ...
+    async def delete_schedule(self, schedule_id: int) -> bool: ...
+    async def start_process_instance(self, pd_code: int, **kw) -> Optional[dict]: ...
+    async def create_or_find_datasource(self, **kw) -> Optional[int]: ...
+    async def healthy(self) -> bool: ...
 
 
 class DSClient:
@@ -340,4 +366,8 @@ class DSClient:
 
 
 def get_ds_client() -> DSClient:
+    """FastAPI-compatible dependency. Returns the singleton DSClient.
+
+    In tests, override via app.dependency_overrides[get_ds_client] = lambda: fake_client
+    """
     return DSClient.get_instance()

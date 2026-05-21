@@ -10,6 +10,13 @@ from app.core.security import get_current_user
 from app.core.permissions import get_accessible_ids, check_resource_permission, require_permission
 from app.core.ds_client import get_ds_client
 from app.core.workflow_publisher import WorkflowPublisher
+from app.core.workflow_state_machine import (
+    STATUS_DRAFT, STATUS_TESTED, STATUS_ONLINE, STATUS_OFFLINE,
+    EDITABLE_STATUSES, DELETABLE_STATUSES,
+    validate_test, validate_publish, validate_offline, validate_run,
+    validate_delete, validate_schedule_online,
+)
+from app.core.exceptions import ValidationError, ExternalServiceError
 from app.models.workflow import Workflow, WorkflowVersion
 from app.models.component import Component
 from app.models.user import SysUser
@@ -17,16 +24,6 @@ from app.models.user import SysUser
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workflows", tags=["工作流"])
-
-
-# ===== 状态常量 =====
-STATUS_DRAFT = "draft"
-STATUS_TESTED = "tested"
-STATUS_ONLINE = "online"
-STATUS_OFFLINE = "offline"
-
-EDITABLE_STATUSES = {STATUS_DRAFT, STATUS_TESTED, STATUS_OFFLINE}
-DELETABLE_STATUSES = {STATUS_DRAFT, STATUS_OFFLINE}
 
 
 # ===== Schemas =====
@@ -459,11 +456,9 @@ async def delete_workflow(
     w = _get_or_404(db, wf_id)
     if not check_resource_permission(db, current_user, "workflow", wf_id, "admin"):
         raise HTTPException(status_code=404, detail="工作流不存在")
-    if w.status not in DELETABLE_STATUSES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"工作流状态 {w.status},只有 draft/offline 状态允许删除;请先下线",
-        )
+    err = validate_delete(w.status)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
     # 先清理 DS 资源 (尽量,失败也继续删 Portal 记录)
     publisher = WorkflowPublisher(db, get_ds_client())
     await publisher.cleanup(w)
@@ -488,8 +483,9 @@ def test_workflow(
     w = _get_or_404(db, wf_id)
     if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
         raise HTTPException(status_code=404, detail="工作流不存在")
-    if w.status not in {STATUS_DRAFT, STATUS_TESTED}:
-        raise HTTPException(status_code=400, detail=f"状态 {w.status} 下不允许测试")
+    err = validate_test(w.status)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
     # 从 DAG 或 steps 提取 component_id
     if w.dag_json and w.dag_json.get("nodes"):
         comp_ids = [n["component_id"] for n in w.dag_json["nodes"] if not n.get("skip")]
@@ -529,13 +525,16 @@ async def publish_workflow(
     w = _get_or_404(db, wf_id)
     if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
         raise HTTPException(status_code=404, detail="工作流不存在")
-    if w.status != STATUS_TESTED:
-        raise HTTPException(
-            status_code=400,
-            detail=f"只有 tested 状态可发布,当前 {w.status},请先测试",
-        )
+    err = validate_publish(w.status)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
     publisher = WorkflowPublisher(db, get_ds_client())
-    pd_code, schedule_id = await publisher.publish(w)
+    try:
+        pd_code, schedule_id = await publisher.publish(w)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.message)
+    except ExternalServiceError as e:
+        raise HTTPException(status_code=502, detail=e.message)
     w.ds_process_code = pd_code
     w.ds_schedule_id = schedule_id
     w.status = STATUS_ONLINE
@@ -568,8 +567,9 @@ async def offline_workflow(
     w = _get_or_404(db, wf_id)
     if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
         raise HTTPException(status_code=404, detail="工作流不存在")
-    if w.status != STATUS_ONLINE:
-        raise HTTPException(status_code=400, detail=f"只有 online 状态可下线,当前 {w.status}")
+    err = validate_offline(w.status)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
     # 同步下线 DS 调度 + process definition
     publisher = WorkflowPublisher(db, get_ds_client())
     await publisher.unpublish(w)
@@ -595,8 +595,9 @@ async def run_workflow(
     w = _get_or_404(db, wf_id)
     if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
         raise HTTPException(status_code=404, detail="工作流不存在")
-    if w.status not in {STATUS_ONLINE, STATUS_TESTED}:
-        raise HTTPException(status_code=400, detail=f"状态 {w.status} 下不允许运行,需先测试/发布")
+    err = validate_run(w.status)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
     if not w.ds_process_code:
         raise HTTPException(status_code=400, detail="工作流未同步到 DS,请先发布")
     ds = get_ds_client()
@@ -626,8 +627,9 @@ async def schedule_online(
     w = _get_or_404(db, wf_id)
     if not check_resource_permission(db, current_user, "workflow", wf_id, "write"):
         raise HTTPException(status_code=404, detail="工作流不存在")
-    if w.status != STATUS_ONLINE:
-        raise HTTPException(status_code=400, detail="工作流需先发布上线才能开启调度")
+    err = validate_schedule_online(w.status)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
     if not w.cron_expression:
         raise HTTPException(status_code=400, detail="未配置 cron 表达式,请先编辑")
     if not w.ds_schedule_id:
