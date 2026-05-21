@@ -1054,6 +1054,7 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   overflow: hidden;
+  padding-right: 40px;
 }
 .tabs-scroll {
   display: flex;
@@ -1098,7 +1099,7 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  padding: 8px 48px 8px 14px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-surface);
   flex-shrink: 0;
