@@ -1,6 +1,7 @@
 <template>
   <div class="ide-wrap">
     <!-- 左侧文件夹树 -->
+    <div class="ide-sidebar" :style="{ width: sidebarWidth + 'px' }">
     <FileTreePanel
       ref="treeRef"
       title="组件开发"
@@ -100,6 +101,8 @@
         </a-tooltip>
       </template>
     </FileTreePanel>
+    </div>
+    <div class="resize-handle" :class="{ active: sidebarDragging }" @mousedown="onSidebarMouseDown"></div>
 
     <!-- 右侧编辑区 -->
     <div class="ide-main">
@@ -117,9 +120,9 @@
       <template v-else>
         <!-- 标签栏 -->
         <div class="tab-bar">
-          <div class="tabs-scroll">
+          <div ref="tabsScrollRef" class="tabs-scroll">
             <div
-              v-for="tab in tabs"
+              v-for="tab in visibleTabs"
               :key="tab.key"
               :class="['tab-item', { active: activeKey === tab.key }]"
               @click="switchTab(tab.key)"
@@ -129,6 +132,18 @@
               <span class="tab-close" @click.stop="closeTab(tab.key)">×</span>
             </div>
           </div>
+          <a-dropdown v-if="overflowTabs.length > 0" trigger="click">
+            <a-button type="text" size="mini" class="overflow-btn">
+              <icon-more />
+              <span style="font-size: 11px; margin-left: 2px;">{{ overflowTabs.length }}</span>
+            </a-button>
+            <template #content>
+              <a-doption v-for="tab in overflowTabs" :key="tab.key" @click="switchTab(tab.key)">
+                <LangIcon :type="tab.language" :size="14" style="margin-right: 6px;" />
+                {{ tab.dirty ? '● ' : '' }}{{ tab.name }}
+              </a-doption>
+            </template>
+          </a-dropdown>
           <a-dropdown trigger="click">
             <a-button type="text" size="mini" class="add-tab-btn"><icon-plus /></a-button>
             <template #content>
@@ -217,7 +232,13 @@
                   <span v-else-if="result.error" class="err-text">✗ {{ result.error }}</span>
                 </template>
               </span>
-              <a-button type="text" size="mini" @click="result = null">关闭</a-button>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <a-button v-if="result && result.type === 'table'" type="text" size="mini" @click="exportToExcel">
+                  <template #icon><icon-download /></template>
+                  导出Excel
+                </a-button>
+                <a-button type="text" size="mini" @click="result = null">关闭</a-button>
+              </div>
             </div>
             <div class="result-body">
               <div v-if="running" class="result-spin"><a-spin /></div>
@@ -241,6 +262,91 @@
           </div>
         </template>
       </template>
+
+      <!-- 右侧 Activity Bar -->
+      <div class="right-bar">
+        <a-tooltip content="基本信息" position="left">
+          <div :class="['rbar-icon', { active: activeRightPanel === 'info' }]" @click="toggleRightPanel('info')">
+            <icon-info-circle />
+          </div>
+        </a-tooltip>
+        <a-tooltip content="参数配置" position="left">
+          <div :class="['rbar-icon', { active: activeRightPanel === 'params' }]" @click="toggleRightPanel('params')">
+            <icon-settings />
+          </div>
+        </a-tooltip>
+        <a-tooltip content="环境参数" position="left">
+          <div :class="['rbar-icon', { active: activeRightPanel === 'env' }]" @click="toggleRightPanel('env')">
+            <icon-thunderbolt />
+          </div>
+        </a-tooltip>
+        <a-tooltip content="操作记录" position="left">
+          <div :class="['rbar-icon', { active: activeRightPanel === 'history' }]" @click="toggleRightPanel('history')">
+            <icon-history />
+          </div>
+        </a-tooltip>
+      </div>
+
+      <!-- 右侧展开面板 -->
+      <transition name="slide-right">
+        <div v-if="activeRightPanel" class="right-panel">
+          <div class="rpanel-header">
+            <span>{{ rightPanelTitle }}</span>
+            <a-button type="text" size="mini" @click="activeRightPanel = null">×</a-button>
+          </div>
+          <div class="rpanel-body">
+            <!-- 基本信息 -->
+            <template v-if="activeRightPanel === 'info' && activeTab">
+              <div class="rpanel-field"><label>名称</label><span>{{ activeTab.name }}</span></div>
+              <div class="rpanel-field"><label>类型</label><span>{{ activeTab.language }}</span></div>
+              <div class="rpanel-field"><label>状态</label><span>{{ activeTab.componentId ? statusLabel(components.find(c => c.id === activeTab!.componentId)?.status || 'draft') : '未保存' }}</span></div>
+              <div class="rpanel-field"><label>创建时间</label><span>{{ components.find(c => c.id === activeTab!.componentId)?.created_at || '-' }}</span></div>
+              <div class="rpanel-field"><label>更新时间</label><span>{{ components.find(c => c.id === activeTab!.componentId)?.updated_at || '-' }}</span></div>
+            </template>
+            <div v-else-if="activeRightPanel === 'info'" class="rpanel-empty">请先打开组件</div>
+
+            <!-- 参数配置 -->
+            <template v-if="activeRightPanel === 'params' && activeTab">
+              <div class="rpanel-hint">在 SQL 中用 <code>${参数名}</code> 引用</div>
+              <div v-for="(p, idx) in (activeTab.localParams || [])" :key="idx" class="param-row-mini">
+                <a-input v-model="p.prop" placeholder="参数名" size="mini" style="width: 90px;" />
+                <a-select v-model="p.type" size="mini" style="width: 90px;">
+                  <a-option value="VARCHAR">VARCHAR</a-option>
+                  <a-option value="INTEGER">INTEGER</a-option>
+                  <a-option value="DATE">DATE</a-option>
+                </a-select>
+                <a-input v-model="p.value" placeholder="默认值" size="mini" style="width: 80px;" />
+                <a-button type="text" size="mini" status="danger" @click="activeTab!.localParams!.splice(idx, 1)">×</a-button>
+              </div>
+              <a-button size="mini" type="dashed" long @click="addParam">+ 添加参数</a-button>
+            </template>
+            <div v-else-if="activeRightPanel === 'params'" class="rpanel-empty">请先打开组件</div>
+
+            <!-- 环境参数 -->
+            <template v-if="activeRightPanel === 'env' && activeTab">
+              <div class="rpanel-field">
+                <label>数据源</label>
+                <a-select v-model="activeTab.datasourceId" size="small" placeholder="选择数据源" allow-clear>
+                  <a-option v-for="ds in datasources" :key="ds.id" :value="ds.id">{{ ds.name }}</a-option>
+                </a-select>
+              </div>
+              <div class="rpanel-field">
+                <label>超时(秒)</label>
+                <a-input-number v-model="(activeTab as any).timeout" size="small" :min="0" :max="7200" placeholder="默认不限" style="width: 100%;" />
+              </div>
+            </template>
+            <div v-else-if="activeRightPanel === 'env'" class="rpanel-empty">请先打开组件</div>
+
+            <!-- 操作记录 -->
+            <template v-if="activeRightPanel === 'history' && activeTab?.componentId">
+              <div class="rpanel-field"><label>最近更新</label><span>{{ components.find(c => c.id === activeTab!.componentId)?.updated_at || '-' }}</span></div>
+              <div class="rpanel-field"><label>创建时间</label><span>{{ components.find(c => c.id === activeTab!.componentId)?.created_at || '-' }}</span></div>
+              <div class="rpanel-hint" style="margin-top: 12px;">更多版本历史功能开发中...</div>
+            </template>
+            <div v-else-if="activeRightPanel === 'history'" class="rpanel-empty">请先保存组件</div>
+          </div>
+        </div>
+      </transition>
     </div>
 
     <!-- 首次保存弹窗 -->
@@ -340,13 +446,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import LangIcon from '../components/LangIcon.vue'
 import FileTreePanel from '../components/FileTreePanel.vue'
 import { TYPE_GROUPS_WITH_DATAX, type TreeNode } from '../composables/useFileTree'
 import { Message } from '@arco-design/web-vue'
 import {
-  IconPlus, IconPlayArrow, IconSave, IconUpload, IconDelete, IconCodeBlock,
+  IconPlus, IconPlayArrow, IconSave, IconUpload, IconDelete, IconCodeBlock, IconMore,
+  IconInfoCircle, IconSettings, IconThunderbolt, IconHistory, IconDownload,
 } from '@arco-design/web-vue/es/icon'
 import CodeEditor from '../components/CodeEditor.vue'
 import ContextMenu from '../components/ContextMenu.vue'
@@ -365,13 +472,18 @@ import ImportModal from '../components/ImportModal.vue'
 import type { ParamDef } from '../utils/sqlParams'
 import { extractSqlParams, mergeParams, substituteSqlParams } from '../utils/sqlParams'
 import { useUserStore } from '../stores/user'
+import * as XLSX from 'xlsx'
 
 import { useTabs, type Tab, type Language } from '../composables/useTabs'
 import { statusLabel, statusColor } from '../composables/useComponentStatus'
 import { useComponentDrag } from '../composables/useComponentDrag'
 import { useContextMenu } from '../composables/useContextMenu'
+import { useResizePanel } from '../composables/useResizePanel'
 
 const userStore = useUserStore()
+
+// 左侧栏拖拽
+const { width: sidebarWidth, dragging: sidebarDragging, onMouseDown: onSidebarMouseDown } = useResizePanel('sqldev-sidebar-width', 280, 180, 480)
 
 const treeRef = ref<InstanceType<typeof FileTreePanel> | null>(null)
 
@@ -383,6 +495,18 @@ const projects = ref<any[]>([])
 const running = ref(false)
 const saving = ref(false)
 const result = ref<any>(null)
+
+// Excel 导出
+function exportToExcel() {
+  if (!result.value || result.value.type !== 'table') return
+  if (result.value.row_count > 10000) {
+    Message.info('数据量较大，导出中请稍候...')
+  }
+  const ws = XLSX.utils.json_to_sheet(result.value.rows, { header: result.value.columns })
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'QueryResult')
+  XLSX.writeFile(wb, `query_result_${Date.now()}.xlsx`)
+}
 
 // DataX 同步任务向导
 const wizardVisible = ref(false)
@@ -400,6 +524,35 @@ const {
 // 包装 switchTab/closeTab 以同时清理 result
 function switchTab(key: string) { _switchTab(key); result.value = null }
 function closeTab(key: string) { _closeTab(key); result.value = null }
+
+// ---- Tab 溢出管理 ----
+const tabsScrollRef = ref<HTMLElement | null>(null)
+const maxVisibleTabs = ref(20)
+
+const visibleTabs = computed(() => tabs.value.slice(0, maxVisibleTabs.value))
+const overflowTabs = computed(() => tabs.value.slice(maxVisibleTabs.value))
+
+let tabResizeObserver: ResizeObserver | null = null
+onMounted(() => {
+  tabResizeObserver = new ResizeObserver((entries) => {
+    const containerWidth = entries[0]?.contentRect.width ?? 800
+    maxVisibleTabs.value = Math.max(1, Math.floor(containerWidth / 140))
+  })
+  nextTick(() => {
+    if (tabsScrollRef.value) tabResizeObserver!.observe(tabsScrollRef.value)
+  })
+})
+onUnmounted(() => { tabResizeObserver?.disconnect() })
+
+// ---- 右侧面板 ----
+const activeRightPanel = ref<string | null>(null)
+function toggleRightPanel(panel: string) {
+  activeRightPanel.value = activeRightPanel.value === panel ? null : panel
+}
+const rightPanelTitle = computed(() => {
+  const map: Record<string, string> = { info: '基本信息', params: '参数配置', env: '环境参数', history: '操作记录' }
+  return map[activeRightPanel.value || ''] || ''
+})
 
 const {
   dragState,
@@ -844,8 +997,21 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 }
 
 /* ---- 左侧（FileTreePanel 容器） ---- */
-.ide-sidebar { width: 280px; flex-shrink: 0; }
+.ide-sidebar { flex-shrink: 0; overflow: hidden; }
 .ide-sidebar :deep(.ftp) { height: 100%; }
+
+/* 拖拽分割条 */
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.resize-handle:hover,
+.resize-handle.active {
+  background: var(--color-primary, #2563eb);
+}
 
 /* 右键菜单中的状态圆点 */
 .opt-dot {
@@ -866,6 +1032,7 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 .ide-empty {
   flex: 1;
@@ -891,10 +1058,8 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 .tabs-scroll {
   display: flex;
   flex: 1;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   height: 100%;
-  scrollbar-width: none;
 }
 .tabs-scroll::-webkit-scrollbar { display: none; }
 .tab-item {
@@ -926,6 +1091,7 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 .tab-close:hover { background: var(--color-danger); color: var(--color-text-inverse); }
 
 .add-tab-btn { flex-shrink: 0; margin: 0 4px; }
+.overflow-btn { flex-shrink: 0; margin: 0 2px; color: var(--color-text-2); }
 
 /* Toolbar */
 .ide-toolbar {
@@ -1020,4 +1186,106 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
 }
 .params-hint { font-size: 12px; color: var(--color-text-tertiary); line-height: 1.6; padding: 10px 12px; background: var(--color-bg-elevated); border-radius: var(--radius-md); }
 .param-row { display: flex; align-items: center; gap: 8px; }
+
+/* ---- 右侧 Activity Bar ---- */
+.right-bar {
+  position: absolute;
+  right: 0;
+  top: 38px;
+  bottom: 0;
+  width: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  gap: 4px;
+  background: var(--color-bg-base);
+  border-left: 1px solid var(--color-border);
+  z-index: 11;
+}
+.rbar-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-text-3);
+  transition: all 0.15s;
+}
+.rbar-icon:hover { background: var(--color-fill-2); color: var(--color-text-1); }
+.rbar-icon.active { background: var(--color-primary-light-1); color: var(--color-primary); }
+
+.right-panel {
+  position: absolute;
+  right: 36px;
+  top: 38px;
+  bottom: 0;
+  width: 300px;
+  background: var(--color-bg-surface, #fff);
+  border-left: 1px solid var(--color-border);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -2px 0 8px rgba(0,0,0,0.06);
+}
+.rpanel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  font-weight: 500;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.rpanel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+.rpanel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.rpanel-field label {
+  font-size: 11px;
+  color: var(--color-text-3);
+  font-weight: 500;
+}
+.rpanel-field span {
+  font-size: 13px;
+  color: var(--color-text-1);
+}
+.rpanel-empty {
+  color: var(--color-text-3);
+  font-size: 13px;
+  text-align: center;
+  padding: 40px 12px;
+}
+.rpanel-hint {
+  font-size: 12px;
+  color: var(--color-text-3);
+  margin-bottom: 10px;
+}
+.param-row-mini {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+/* 右侧面板滑入动画 */
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(20px);
+  opacity: 0;
+}
 </style>
