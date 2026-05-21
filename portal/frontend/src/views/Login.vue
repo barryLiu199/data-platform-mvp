@@ -1,7 +1,8 @@
 <template>
   <div class="login-page">
-    <!-- 左侧品牌区 -->
+    <!-- 左侧粒子动画区 -->
     <div class="login-hero">
+      <canvas ref="canvasRef" class="particle-canvas"></canvas>
       <div class="hero-content">
         <div class="hero-logo">
           <svg width="48" height="48" viewBox="0 0 36 36" fill="none">
@@ -16,7 +17,7 @@
           </svg>
         </div>
         <h1 class="hero-title">数据中台</h1>
-        <p class="hero-subtitle">金融行业离线数据统一工作台</p>
+        <p class="hero-subtitle">DATA INTELLIGENCE MIDDLEWARE</p>
         <div class="hero-features">
           <div class="feature-item">
             <div class="feature-dot"></div>
@@ -32,9 +33,6 @@
           </div>
         </div>
       </div>
-      <!-- 装饰圆形 -->
-      <div class="hero-circle hero-circle-1"></div>
-      <div class="hero-circle hero-circle-2"></div>
     </div>
 
     <!-- 右侧登录表单 -->
@@ -42,24 +40,24 @@
       <div class="login-card">
         <div class="login-header">
           <h2 class="login-title">欢迎登录</h2>
-          <p class="login-subtitle">Data Platform</p>
+          <p class="login-subtitle">Sign in to your workspace</p>
         </div>
 
         <a-form :model="form" @submit-success="handleLogin" layout="vertical">
-          <a-form-item field="username" label="用户名" :rules="[{ required: true, message: '请输入用户名' }]">
-            <a-input v-model="form.username" placeholder="请输入用户名" size="large" allow-clear>
+          <a-form-item field="username" :rules="[{ required: true, message: '请输入用户名' }]" hide-label>
+            <a-input v-model="form.username" placeholder="用户名" size="large" allow-clear>
               <template #prefix><icon-user /></template>
             </a-input>
           </a-form-item>
 
-          <a-form-item field="password" label="密码" :rules="[{ required: true, message: '请输入密码' }]">
-            <a-input-password v-model="form.password" placeholder="请输入密码" size="large" allow-clear>
+          <a-form-item field="password" :rules="[{ required: true, message: '请输入密码' }]" hide-label>
+            <a-input-password v-model="form.password" placeholder="密码" size="large" allow-clear>
               <template #prefix><icon-lock /></template>
             </a-input-password>
           </a-form-item>
 
-          <a-form-item style="margin-bottom: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+          <a-form-item style="margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
               <a-checkbox v-model="form.remember">记住密码</a-checkbox>
               <a-link style="font-size: 12px;">忘记密码?</a-link>
             </div>
@@ -89,20 +87,15 @@
         </template>
 
         <div class="login-footer">
-          <span>数据中台 MVP</span>
+          <span>数据中台 MVP &copy; 2026</span>
         </div>
-      </div>
-
-      <!-- 底部版权 -->
-      <div class="copyright">
-        &copy; 2026 数据中台 MVP &middot; 金融行业离线数据处理平台
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconUser, IconLock } from '@arco-design/web-vue/es/icon'
@@ -153,125 +146,298 @@ async function handleLogin() {
   }
 }
 
-onMounted(loadSsoProviders)
+// ---- 粒子网络动画 ----
+const canvasRef = ref<HTMLCanvasElement | null>(null)
+let animationId = 0
+
+interface Particle {
+  x: number; y: number; vx: number; vy: number; r: number; alpha: number
+}
+
+function initParticles() {
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  let width = 0
+  let height = 0
+  const particles: Particle[] = []
+  const PARTICLE_COUNT = 60
+  const CONNECTION_DIST = 150
+  let mouse = { x: -1000, y: -1000 }
+
+  function resize() {
+    const rect = canvas!.parentElement!.getBoundingClientRect()
+    width = rect.width
+    height = rect.height
+    canvas!.width = width * window.devicePixelRatio
+    canvas!.height = height * window.devicePixelRatio
+    ctx!.scale(window.devicePixelRatio, window.devicePixelRatio)
+  }
+
+  function createParticles() {
+    particles.length = 0
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        r: Math.random() * 2 + 1.5,
+        alpha: Math.random() * 0.5 + 0.3,
+      })
+    }
+  }
+
+  function draw() {
+    ctx!.clearRect(0, 0, width, height)
+
+    // 连线
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x
+        const dy = particles[i].y - particles[j].y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < CONNECTION_DIST) {
+          const opacity = (1 - dist / CONNECTION_DIST) * 0.25
+          ctx!.beginPath()
+          ctx!.strokeStyle = `rgba(37, 99, 235, ${opacity})`
+          ctx!.lineWidth = 0.8
+          ctx!.moveTo(particles[i].x, particles[i].y)
+          ctx!.lineTo(particles[j].x, particles[j].y)
+          ctx!.stroke()
+        }
+      }
+    }
+
+    // 粒子
+    for (const p of particles) {
+      // 鼠标涟漪
+      const mdx = p.x - mouse.x
+      const mdy = p.y - mouse.y
+      const mDist = Math.sqrt(mdx * mdx + mdy * mdy)
+      if (mDist < 120) {
+        const force = (120 - mDist) / 120 * 0.3
+        p.vx += (mdx / mDist) * force
+        p.vy += (mdy / mDist) * force
+      }
+
+      p.x += p.vx
+      p.y += p.vy
+
+      // 边界反弹
+      if (p.x < 0 || p.x > width) p.vx *= -1
+      if (p.y < 0 || p.y > height) p.vy *= -1
+      p.x = Math.max(0, Math.min(width, p.x))
+      p.y = Math.max(0, Math.min(height, p.y))
+
+      // 速度衰减
+      p.vx *= 0.998
+      p.vy *= 0.998
+      // 保持最低速度
+      const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy)
+      if (speed < 0.15) {
+        p.vx += (Math.random() - 0.5) * 0.1
+        p.vy += (Math.random() - 0.5) * 0.1
+      }
+
+      ctx!.beginPath()
+      ctx!.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+      ctx!.fillStyle = `rgba(37, 99, 235, ${p.alpha})`
+      ctx!.fill()
+    }
+
+    animationId = requestAnimationFrame(draw)
+  }
+
+  function onMouseMove(e: MouseEvent) {
+    const rect = canvas!.getBoundingClientRect()
+    mouse.x = e.clientX - rect.left
+    mouse.y = e.clientY - rect.top
+  }
+
+  function onMouseLeave() {
+    mouse.x = -1000
+    mouse.y = -1000
+  }
+
+  resize()
+  createParticles()
+  draw()
+
+  window.addEventListener('resize', resize)
+  canvas!.addEventListener('mousemove', onMouseMove)
+  canvas!.addEventListener('mouseleave', onMouseLeave)
+
+  // 存储清理函数
+  ;(canvas as any)._cleanup = () => {
+    cancelAnimationFrame(animationId)
+    window.removeEventListener('resize', resize)
+    canvas!.removeEventListener('mousemove', onMouseMove)
+    canvas!.removeEventListener('mouseleave', onMouseLeave)
+  }
+}
+
+onMounted(() => {
+  loadSsoProviders()
+  initParticles()
+})
+
+onUnmounted(() => {
+  const canvas = canvasRef.value
+  if (canvas && (canvas as any)._cleanup) (canvas as any)._cleanup()
+})
 </script>
 
 <style scoped>
 .login-page {
   height: 100vh;
   display: flex;
-  background: var(--color-bg-base);
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
   overflow: hidden;
 }
 
-/* 左侧品牌区 */
+/* 左侧粒子动画区 */
 .login-hero {
-  flex: 1;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover), var(--color-accent));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 3;
   position: relative;
   overflow: hidden;
+  background: linear-gradient(160deg, #f0f5ff 0%, #e8f0fe 50%, #f8fafc 100%);
   min-width: 0;
 }
 
-.hero-content {
-  position: relative;
-  z-index: 1;
-  color: #fff;
-  padding: 40px;
-  max-width: 420px;
+.particle-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.hero-logo { margin-bottom: 24px; }
+.hero-content {
+  position: absolute;
+  bottom: 60px;
+  left: 48px;
+  z-index: 1;
+}
+
+.hero-logo { margin-bottom: 20px; }
 
 .hero-title {
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 700;
-  margin: 0 0 8px;
+  color: #1e293b;
+  margin: 0 0 6px;
   letter-spacing: 2px;
 }
 
 .hero-subtitle {
-  font-size: 15px;
-  margin: 0 0 40px;
-  opacity: 0.85;
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 28px;
+  letter-spacing: 3px;
+  font-weight: 500;
 }
 
-.hero-features { display: flex; flex-direction: column; gap: 16px; }
-.feature-item { display: flex; align-items: center; gap: 12px; font-size: 14px; opacity: 0.9; }
-.feature-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.7); flex-shrink: 0; }
-
-.hero-circle {
-  position: absolute;
+.hero-features { display: flex; flex-direction: column; gap: 12px; }
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #475569;
+}
+.feature-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.15);
+  background: #2563eb;
+  flex-shrink: 0;
 }
-.hero-circle-1 { width: 400px; height: 400px; top: -100px; right: -100px; }
-.hero-circle-2 { width: 300px; height: 300px; bottom: -80px; left: -80px; }
 
 /* 右侧登录区 */
 .login-form-area {
-  width: 480px;
-  flex-shrink: 0;
+  flex: 2;
+  max-width: 460px;
+  min-width: 380px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--color-bg-surface);
-  padding: 40px;
+  padding: 48px 40px;
+  background: #ffffff;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.04);
 }
 
 .login-card {
   width: 100%;
-  max-width: 360px;
-  animation: cardIn 0.4s ease-out;
+  max-width: 340px;
+  animation: cardIn 0.5s ease-out;
 }
 
 @keyframes cardIn {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .login-header {
-  margin-bottom: 32px;
+  margin-bottom: 36px;
 }
 
 .login-title {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0 0 4px;
+  color: #1e293b;
+  margin: 0 0 6px;
 }
 
 .login-subtitle {
-  font-size: 13px;
-  color: var(--color-text-tertiary);
+  font-size: 12px;
+  color: #94a3b8;
   margin: 0;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
+}
+
+/* 输入框美化 */
+:deep(.arco-input-wrapper) {
+  border-radius: 10px !important;
+  border-color: #e2e8f0 !important;
+  background: #f8fafc !important;
+  transition: all 0.25s ease;
+}
+:deep(.arco-input-wrapper:hover) {
+  border-color: #cbd5e1 !important;
+}
+:deep(.arco-input-wrapper.arco-input-focus) {
+  border-color: #2563eb !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08) !important;
+}
+:deep(.arco-input-prefix) {
+  color: #94a3b8;
 }
 
 .login-btn {
-  height: 42px;
+  height: 44px;
   font-size: 15px;
   font-weight: 500;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover)) !important;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
   border: none !important;
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   letter-spacing: 4px;
+  transition: all 0.25s ease;
 }
 .login-btn:hover {
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover)) !important;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37,99,235,0.25);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.3);
 }
 
 .login-footer {
   text-align: center;
-  color: var(--color-text-disabled);
-  font-size: 12px;
-  margin-top: 16px;
+  color: #cbd5e1;
+  font-size: 11px;
+  margin-top: 24px;
+  letter-spacing: 0.5px;
 }
 
 .sso-buttons {
@@ -284,10 +450,15 @@ onMounted(loadSsoProviders)
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 38px;
-  border-radius: 8px !important;
+  height: 40px;
+  border-radius: 10px !important;
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: #475569;
+  border-color: #e2e8f0 !important;
+}
+.sso-btn:hover {
+  border-color: #cbd5e1 !important;
+  background: #f8fafc !important;
 }
 
 .sso-icon {
@@ -303,22 +474,12 @@ onMounted(loadSsoProviders)
   flex-shrink: 0;
 }
 
-.copyright {
-  margin-top: auto;
-  padding-top: 24px;
-  color: var(--color-text-disabled);
-  font-size: 12px;
-  letter-spacing: 0.5px;
-}
-
-/* Arco 样式覆盖 */
-:deep(.arco-form-item-label) {
-  color: var(--color-text-secondary) !important;
-  font-size: 13px !important;
+:deep(.arco-form-item) {
+  margin-bottom: 20px;
 }
 
 @media (max-width: 900px) {
   .login-hero { display: none; }
-  .login-form-area { width: 100%; }
+  .login-form-area { max-width: 100%; min-width: 0; flex: 1; }
 }
 </style>
