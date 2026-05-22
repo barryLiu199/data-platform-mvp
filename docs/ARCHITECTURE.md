@@ -38,6 +38,8 @@
 
 **建议方案**：SQL 执行加 `SET SESSION max_execution_time=30000`（MySQL），Python/Shell 保持 subprocess timeout。
 
+**状态**：✅ 已解决(2026-05-22)— mysql/postgresql/sqlserver/clickhouse 四个 adapter 的 connect() 均加了 session 级超时（`SQL_QUERY_TIMEOUT_SEC` env 可配，默认 30s）。
+
 ---
 
 ### [中] 编辑锁没有心跳续期
@@ -90,6 +92,8 @@
 - 新增 `type-check` 与 `build:strict` 脚本,CI/上线前必跑 `build:strict`。
 - 旧错误分批清理:先把 admin/Roles、admin/Sso、admin/Users、SqlDev、Workflow、WorkflowEditor 这 6 个文件的类型错误清掉,即可启用 `build:strict` 作为默认 `build`。
 
+**状态**：✅ 已解决(2026-05-22)— 10 处 TS 错误全部清理，`build` 脚本已切为 `vue-tsc --noEmit && vite build`，旧宽松构建保留为 `build:loose`。
+
 ---
 
 ### [低] .env 含真实密码提交到仓库
@@ -120,6 +124,8 @@
 - ✅ **REDIS_URL / DS_ADMIN_PASSWORD compose 注入(P0)** — 不再依赖 config.py 默认值(2026-05-22)
 - ✅ **前端 type-check 脚本(P0)** — 新增 `type-check` / `build:strict`,留作 CI 门禁(2026-05-22)
 - ✅ **前端 Playwright 冒烟(P0)** — `e2e/login.spec.ts` 5 条主路径(2026-05-22)
+- ✅ **SQL 查询超时保护(P0)** — mysql/postgresql/sqlserver/clickhouse adapter 加 session 级超时，默认 30s(2026-05-22)
+- ✅ **前端 TS 错误清理(P0)** — 10 处错误修复，`build` 默认 strict(2026-05-22)
 - ✅ **workflow dag_json 节点名称快照问题** — 改名时已自动同步(2026-05,`_sync_component_name_in_workflows`)
 - ✅ **组件无编辑锁** — 已加 locked_by/locked_at + 30分钟TTL(2026-05)
 - ✅ **DS OOM** — 内存限制从 2g 提升到 4g(2026-05)

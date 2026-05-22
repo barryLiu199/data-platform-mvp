@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_SECONDS: int = 300
     ADMIN_INIT_PASSWORD: str = "admin123"
+    SQL_QUERY_TIMEOUT_SEC: int = 30
 
     @property
     def CORS_ORIGINS(self) -> List[str]:

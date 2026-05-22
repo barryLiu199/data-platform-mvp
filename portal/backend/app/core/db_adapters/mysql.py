@@ -9,6 +9,7 @@ class MysqlAdapter(AdapterBase):
 
     def connect(self, db_override: Optional[str] = None):
         import pymysql
+        from app.core.config import settings
         conn = pymysql.connect(
             host=self.ds.host, port=self.ds.port or 3306, user=self.ds.username,
             password=self.ds.password, database=db_override or self._database,
@@ -16,6 +17,7 @@ class MysqlAdapter(AdapterBase):
         )
         with conn.cursor() as cur:
             cur.execute("SET NAMES utf8mb4")
+            cur.execute(f"SET SESSION max_execution_time={settings.SQL_QUERY_TIMEOUT_SEC * 1000}")
         return conn
 
     def _table_exists_query(self, table: str) -> Tuple[str, tuple]:

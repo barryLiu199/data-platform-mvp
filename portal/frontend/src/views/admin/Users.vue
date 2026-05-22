@@ -23,7 +23,8 @@
       <a-table
         :data="users"
         :loading="loading"
-        :pagination="{ total, pageSize, current: page, onChange: onPageChange }"
+        :pagination="{ total, pageSize, current: page }"
+        @page-change="onPageChange"
         row-key="id"
         style="margin-top: 12px"
       >

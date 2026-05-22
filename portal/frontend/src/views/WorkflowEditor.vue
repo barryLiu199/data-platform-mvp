@@ -26,7 +26,7 @@ const scheduleStatus = ref('OFFLINE')
 const workflowTags = ref<string[]>([])
 const tagInput = ref('')
 const workflowPriority = ref(3)
-const workflowProjectId = ref<number | null>(null)
+const workflowProjectId = ref<number | undefined>(undefined)
 const projectList = ref<any[]>([])
 const dagNodes = ref<DagNode[]>([])
 const dagEdges = ref<DagEdge[]>([])
@@ -131,7 +131,7 @@ async function loadWorkflow() {
   dsProcessCode.value = res.ds_process_code || null
   workflowTags.value = res.tags || []
   workflowPriority.value = res.priority || 3
-  workflowProjectId.value = res.project_id || null
+  workflowProjectId.value = res.project_id || undefined
   workflowParams.value = res.params || []
   if (res.dag && res.dag.nodes) {
     dagNodes.value = res.dag.nodes

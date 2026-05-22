@@ -44,7 +44,7 @@
       <a-col :span="16">
         <a-card :bordered="false" :title="selectedRole ? `${selectedRole.name} — 权限配置` : '选择角色查看权限'">
           <template v-if="selectedRole">
-            <div v-for="group in permissionGroups" :key="group.type" class="perm-group">
+            <div v-for="group in permissionGroups" :key="group.label" class="perm-group">
               <div class="perm-group-title">{{ group.label }}</div>
               <a-space wrap>
                 <a-checkbox
@@ -52,7 +52,7 @@
                   :key="p.code"
                   :model-value="selectedPerms.includes(p.code)"
                   :disabled="selectedRole.is_system"
-                  @change="(v: boolean) => togglePerm(p.code, v)"
+                  @change="(v: boolean | (string | number | boolean)[]) => togglePerm(p.code, v === true)"
                 >{{ p.name }}</a-checkbox>
               </a-space>
             </div>
@@ -177,6 +177,7 @@ async function handleCreate() {
 function handleDelete(role: any) {
   Modal.confirm({
     title: `确认删除角色 "${role.name}"？`,
+    content: ' ',
     onOk: async () => {
       await adminDeleteRole(role.id)
       Message.success('已删除')

@@ -10,13 +10,13 @@
             <div>
               <div class="sso-name">{{ p.label }}</div>
               <a-badge
-                :status="getConfig(p.provider)?.enabled ? 'success' : 'default'"
+                :status="getConfig(p.provider)?.enabled ? 'success' : 'normal'"
                 :text="getConfig(p.provider)?.enabled ? '已启用' : '未启用'"
               />
             </div>
           </div>
 
-          <a-form layout="vertical" style="margin-top: 16px">
+          <a-form :model="forms[p.provider]" layout="vertical" style="margin-top: 16px">
             <a-form-item label="App ID / Client ID">
               <a-input v-model="forms[p.provider].app_id" placeholder="应用 ID" />
             </a-form-item>

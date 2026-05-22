@@ -10,6 +10,7 @@ class PostgresqlAdapter(AdapterBase):
 
     def connect(self, db_override: Optional[str] = None):
         import psycopg2
+        from app.core.config import settings
         database = db_override or self._database
         conn = psycopg2.connect(
             host=self.ds.host, port=self.ds.port or 5432, user=self.ds.username,
@@ -19,6 +20,7 @@ class PostgresqlAdapter(AdapterBase):
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', database):
             raise ValueError(f"Invalid database name: {database}")
         cur.execute(f"SET search_path TO {database}, public")
+        cur.execute(f"SET statement_timeout = '{settings.SQL_QUERY_TIMEOUT_SEC}s'")
         cur.close()
         return conn
 

@@ -9,10 +9,15 @@ class SqlServerAdapter(AdapterBase):
 
     def connect(self, db_override: Optional[str] = None):
         import pymssql
-        return pymssql.connect(
+        from app.core.config import settings
+        conn = pymssql.connect(
             server=self.ds.host, port=str(self.ds.port or 1433), user=self.ds.username,
             password=self.ds.password, database=db_override or self._database, login_timeout=5,
         )
+        cur = conn.cursor()
+        cur.execute(f"SET LOCK_TIMEOUT {settings.SQL_QUERY_TIMEOUT_SEC * 1000}")
+        cur.close()
+        return conn
 
     def _table_exists_query(self, table: str) -> Tuple[str, tuple]:
         return (

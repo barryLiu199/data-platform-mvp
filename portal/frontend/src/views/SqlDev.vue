@@ -214,7 +214,7 @@
           <div class="editor-area">
             <!-- 存储过程类型：渲染配置表单代替代码编辑器 -->
             <div v-if="activeTab.language === 'procedure'" class="proc-form">
-              <a-form :model="activeTab.procedure" auto-label-width layout="vertical">
+              <a-form :model="activeTab.procedure ?? {}" auto-label-width layout="vertical">
                 <a-form-item label="数据源">
                   <a-select
                     v-model="activeTab.datasourceId"
@@ -763,7 +763,7 @@ const paramModalSql = ref('')
 
 const saveModalVisible = ref(false)
 const saveName = ref('')
-const saveFolderId = ref<number | null>(null)
+const saveFolderId = ref<number | undefined>(undefined)
 const pendingSaveTab = ref<Tab | null>(null)
 
 const newFolderVisible = ref(false)
@@ -1073,7 +1073,7 @@ async function saveTab() {
     }
     pendingSaveTab.value = tab
     saveName.value = tab.name.startsWith('Untitled') ? '' : tab.name
-    saveFolderId.value = tab.folderId ?? null
+    saveFolderId.value = tab.folderId ?? undefined
     saveModalVisible.value = true
     return
   }

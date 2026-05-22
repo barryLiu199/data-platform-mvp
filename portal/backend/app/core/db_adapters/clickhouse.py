@@ -9,10 +9,12 @@ class ClickHouseAdapter(AdapterBase):
 
     def connect(self, db_override: Optional[str] = None):
         from clickhouse_driver import Client
+        from app.core.config import settings
         return Client(
             host=self.ds.host, port=self.ds.port or 9000,
             user=self.ds.username or "default", password=self.ds.password or "",
             database=db_override or self._database,
+            settings={"max_execution_time": settings.SQL_QUERY_TIMEOUT_SEC},
         )
 
     def test_connection(self, table: Optional[str] = None) -> Tuple[bool, str]:

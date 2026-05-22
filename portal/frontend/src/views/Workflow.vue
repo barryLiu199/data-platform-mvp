@@ -245,8 +245,8 @@ const projectFilter = ref<number | undefined>(undefined)
 const projects = ref<ProjectItem[]>([])
 const selectedIds = ref<number[]>([])
 
-function onSelectionChange(keys: number[]) {
-  selectedIds.value = keys
+function onSelectionChange(keys: (string | number)[]) {
+  selectedIds.value = keys as number[]
 }
 
 async function batchAction(action: string) {
