@@ -18,6 +18,7 @@
               </span>
             </a-option>
           </a-select>
+          <a-button size="small" @click="projectDrawerVisible = true">管理项目</a-button>
           <a-input-search
             v-model="searchVal"
             placeholder="搜索工作流名"
@@ -180,6 +181,12 @@
       v-model:visible="importModalVisible"
       @imported="loadData"
     />
+
+    <!-- 项目管理抽屉 -->
+    <ProjectManageDrawer
+      v-model:visible="projectDrawerVisible"
+      @change="onProjectChange"
+    />
   </div>
 </template>
 
@@ -194,6 +201,7 @@ import StatusTag from '../components/StatusTag.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ComplementModal from '../components/BackfillCreateModal.vue'
 import ImportModal from '../components/ImportModal.vue'
+import ProjectManageDrawer from '../components/ProjectManageDrawer.vue'
 import { getLifecycleStatus, getRunSymbol } from '../constants/status'
 import type { FilterTab } from '../components/FilterTabs.vue'
 import {
@@ -244,6 +252,7 @@ const allTags = ref<string[]>([])
 const projectFilter = ref<number | undefined>(undefined)
 const projects = ref<ProjectItem[]>([])
 const selectedIds = ref<number[]>([])
+const projectDrawerVisible = ref(false)
 
 function onSelectionChange(keys: (string | number)[]) {
   selectedIds.value = keys as number[]
@@ -430,6 +439,14 @@ async function doExportWorkflow(w: Workflow) {
   } catch (e: any) {
     Message.error(e?.response?.data?.detail || '导出失败')
   }
+}
+
+async function onProjectChange() {
+  try {
+    const res: any = await getProjects()
+    projects.value = res?.items || []
+  } catch {}
+  loadData()
 }
 
 onMounted(async () => {

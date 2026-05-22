@@ -67,6 +67,7 @@
             <span class="project-opt"><span class="project-dot" :style="{ background: p.color }"></span>{{ p.name }}</span>
           </a-option>
         </a-select>
+        <a-button size="small" @click="projectDrawerVisible = true">管理项目</a-button>
         <a-select
           v-model="workflowFilter"
           placeholder="全部工作流"
@@ -233,6 +234,12 @@
         <pre class="log-pre">{{ logContent || '加载中...' }}</pre>
       </a-spin>
     </a-modal>
+
+    <!-- 项目管理抽屉 -->
+    <ProjectManageDrawer
+      v-model:visible="projectDrawerVisible"
+      @change="onProjectChange"
+    />
   </div>
 </template>
 
@@ -251,6 +258,7 @@ import {
   getDSInstances, getDSInstanceTasks, getDSTaskLog, rerunDSInstance,
   getWorkflows, getProjects,
 } from '../api'
+import ProjectManageDrawer from '../components/ProjectManageDrawer.vue'
 
 interface Instance {
   id: number; name: string; state: string; triggerType: string
@@ -279,6 +287,7 @@ const workflowList = ref<{ code: number; name: string }[]>([])
 const projectFilter = ref<number | undefined>(undefined)
 const projects = ref<{ id: number; name: string; color: string }[]>([])
 const triggerFilter = ref<string | undefined>(undefined)
+const projectDrawerVisible = ref(false)
 const taskMap = ref<Record<number, Task[]>>({})
 const taskLoading = ref<Record<number, boolean>>({})
 const logVisible = ref(false)
@@ -443,6 +452,14 @@ async function rerun(instanceId: number) {
 
 function goDetail(id: number) {
   router.push(`/ops/instances/${id}`)
+}
+
+async function onProjectChange() {
+  try {
+    const res: any = await getProjects()
+    projects.value = (res?.items || []).map((p: any) => ({ id: p.id, name: p.name, color: p.color }))
+  } catch {}
+  loadInstances()
 }
 
 function toggleAutoRefresh() {
