@@ -120,11 +120,6 @@ export const runDSWorkflow = (code: number) => api.post(`/ds/workflows/${code}/r
 export const onlineDSWorkflow = (code: number) => api.post(`/ds/workflows/${code}/online`)
 export const offlineDSWorkflow = (code: number) => api.post(`/ds/workflows/${code}/offline`)
 export const rerunDSWorkflow = (code: number) => api.post(`/ds/workflows/${code}/rerun`)
-export const complementDSWorkflow = (code: number, startDate: string, endDate: string, startParams?: string) => {
-  let url = `/ds/workflows/${code}/complement?start_date=${startDate}&end_date=${endDate}`
-  if (startParams) url += `&start_params=${encodeURIComponent(startParams)}`
-  return api.post(url)
-}
 export const getDSInstances = (params?: any) => api.get('/ds/instances', { params })
 export const getDSCalendar = (days?: number) => api.get('/ds/instances/calendar', { params: { days } })
 export const getDSInstanceTasks = (instanceId: number) => api.get(`/ds/instances/${instanceId}/tasks`)

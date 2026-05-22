@@ -7,7 +7,7 @@ import DagCanvas from '../components/dag/DagCanvas.vue'
 import DagNodePanel from '../components/dag/DagNodePanel.vue'
 import DagToolbar from '../components/dag/DagToolbar.vue'
 import ScheduleModal from '../components/ScheduleModal.vue'
-import ComplementModal from '../components/ComplementModal.vue'
+import ComplementModal from '../components/BackfillCreateModal.vue'
 import { getWorkflow, createWorkflow, updateWorkflow, testWorkflow, publishWorkflow, offlineWorkflow, runWorkflow, getProjects, getWorkflowVersions, rollbackWorkflowVersion } from '../api'
 
 interface DagNode { id: string; component_id: number; type?: string; name: string; position: { x: number; y: number }; skip: boolean }
@@ -421,10 +421,10 @@ function handleAutoLayout() { dagCanvas.value?.autoLayout() }
 
     <!-- 补数弹窗 -->
     <ComplementModal
-      v-if="dsProcessCode"
+      v-if="workflowId && dsProcessCode"
       :visible="complementVisible"
+      :workflow-id="workflowId"
       :workflow-name="workflowName"
-      :ds-process-code="dsProcessCode"
       @update:visible="complementVisible = $event"
     />
 

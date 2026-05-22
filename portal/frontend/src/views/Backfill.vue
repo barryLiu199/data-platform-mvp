@@ -1,13 +1,6 @@
 <template>
   <div class="page">
-    <PageHeader title="补数据" description="按日期范围批量补跑工作流，支持并行/串行执行">
-      <template #extra>
-        <a-button type="primary" @click="creatorVisible = true">
-          <template #icon><icon-plus /></template>
-          新建补数据
-        </a-button>
-      </template>
-    </PageHeader>
+    <PageHeader title="补数据" description="查看历史补数任务进度。新建补数请到「工作流」页面，对目标工作流点「更多 → 补数」。" />
 
     <a-table
       :data="list"
@@ -57,33 +50,12 @@
           </template>
         </a-table-column>
       </template>
+      <template #empty>
+        <EmptyState description="暂无补数任务">
+          <p class="text-muted">到「工作流」页面对目标工作流点「更多 → 补数」发起</p>
+        </EmptyState>
+      </template>
     </a-table>
-
-    <!-- 新建抽屉 -->
-    <a-modal v-model:visible="creatorVisible" title="新建补数据" :width="560" @ok="onCreate" :ok-loading="submitting">
-      <a-form :model="form" auto-label-width>
-        <a-form-item field="workflow_id" label="工作流" :rules="[{ required: true, message: '请选择工作流' }]">
-          <a-select v-model="form.workflow_id" placeholder="选择已发布的工作流" :loading="wfLoading">
-            <a-option v-for="w in workflows" :key="w.id" :value="w.id">{{ w.name }}</a-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item field="date_range" label="日期范围" :rules="[{ required: true, message: '请选择日期范围' }]">
-          <a-range-picker v-model="form.date_range" style="width: 100%" />
-        </a-form-item>
-        <a-form-item field="has_dep" label="日期依赖">
-          <a-switch v-model="form.has_dep" />
-          <span style="margin-left:8px;color:var(--color-text-3);font-size:12px">
-            {{ form.has_dep ? '串行：按日顺序，失败停止' : '并行：受并行度限制' }}
-          </span>
-        </a-form-item>
-        <a-form-item field="parallel" label="并行度" :disabled="form.has_dep">
-          <a-input-number v-model="form.parallel" :min="1" :max="20" :disabled="form.has_dep" />
-        </a-form-item>
-        <a-form-item label="预计实例数">
-          <span>{{ estimateCount }} 个</span>
-        </a-form-item>
-      </a-form>
-    </a-modal>
 
     <!-- 详情抽屉 -->
     <a-drawer v-model:visible="detailVisible" :width="640" title="补数据详情" :footer="false">
@@ -126,38 +98,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { IconPlus } from '@arco-design/web-vue/es/icon'
 import PageHeader from '../components/PageHeader.vue'
+import EmptyState from '../components/EmptyState.vue'
 import {
-  listBackfill, createBackfill, getBackfill, stopBackfill, retryBackfillInstance,
-  getWorkflows,
+  listBackfill, getBackfill, stopBackfill, retryBackfillInstance,
 } from '../api'
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
-
-const creatorVisible = ref(false)
-const submitting = ref(false)
-const wfLoading = ref(false)
-const workflows = ref<any[]>([])
-
-const form = reactive({
-  workflow_id: undefined as number | undefined,
-  date_range: [] as string[],
-  parallel: 1,
-  has_dep: false,
-})
-
-const estimateCount = computed(() => {
-  if (form.date_range?.length !== 2) return 0
-  const a = new Date(form.date_range[0])
-  const b = new Date(form.date_range[1])
-  return Math.max(0, Math.floor((+b - +a) / 86400000) + 1)
-})
 
 const detailVisible = ref(false)
 const detail = ref<any>(null)
@@ -180,47 +132,9 @@ async function loadList() {
   }
 }
 
-async function loadWorkflows() {
-  wfLoading.value = true
-  try {
-    const res = await getWorkflows({ status: 'online', page_size: 200 })
-    workflows.value = res.data.items || []
-  } finally {
-    wfLoading.value = false
-  }
-}
-
 function onPageChange(p: number) {
   page.value = p
   loadList()
-}
-
-async function onCreate() {
-  if (!form.workflow_id || form.date_range?.length !== 2) {
-    Message.warning('请选择工作流和日期范围')
-    return
-  }
-  submitting.value = true
-  try {
-    await createBackfill({
-      workflow_id: form.workflow_id,
-      date_from: form.date_range[0],
-      date_to: form.date_range[1],
-      parallel: form.has_dep ? 1 : form.parallel,
-      has_dep: form.has_dep ? 1 : 0,
-    })
-    Message.success('已创建并开始执行')
-    creatorVisible.value = false
-    form.workflow_id = undefined
-    form.date_range = []
-    form.parallel = 1
-    form.has_dep = false
-    loadList()
-  } catch (e: any) {
-    Message.error(e?.response?.data?.detail || '创建失败')
-  } finally {
-    submitting.value = false
-  }
 }
 
 async function openDetail(id: number) {
@@ -243,10 +157,10 @@ async function onRetry(id: number) {
 
 onMounted(() => {
   loadList()
-  loadWorkflows()
 })
 </script>
 
 <style scoped>
 .page { padding: 16px; }
+.text-muted { color: var(--color-text-tertiary); }
 </style>

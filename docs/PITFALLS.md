@@ -102,3 +102,39 @@ for (let i = 0; i < children.length; i++) {
 **现象**：多用户同时点"运行"可能并发执行同一个 DataX 任务。
 
 **状态**：已知架构债务，见 `ARCHITECTURE.md`。
+
+---
+
+## [2026-05] 补数 502：DS 3.2.x scheduleTime 必须是 JSON 而非逗号分隔
+
+**现象**：工作流页 → 更多 → 补数 → 选日期范围 → 提交，前端 toast "补数失败"，浏览器 Network 502 Bad Gateway。`backfill_task` 表 0 行（说明根本没走新引擎）。
+
+**根因**：
+1. UI 有**两套补数**并存——工作流页/调度历史页的旧"补数"按钮用的是 `POST /api/ds/workflows/{code}/complement`，前端文件 `ComplementModal.vue`；运维中心 → 补数据 是新的 `POST /api/backfill`（新表 + asyncio 引擎）。用户的心智模型是从工作流入口发起，永远进的是旧路径。
+2. 旧路径把 `scheduleTime` 拼成 `"2026-05-14 00:00:00,2026-05-21 00:00:00"`（DS 2.x 老格式）。DS 3.2.2 `ExecutorServiceImpl.checkScheduleTimeNumExceed:308` 调 `JSONUtils.toMap(cronTime)` 解析为 JSON map，失败抛 `JsonParseException`，外层 `ApiExceptionHandler` 转 `NullPointerException`，portal 收到 null 返 502。
+3. DS 3.2.x 期望 `scheduleTime = '{"complementStartDate":"...","complementEndDate":"..."}'`（或 `complementScheduleDateList`）。
+
+**DS 日志关键证据**：
+```
+[ERROR] o.a.d.c.u.JSONUtils: json to map exception!
+JsonParseException: Unexpected character ('-' (code 45))
+ at [Source: (String)"2026-05-14 00:00:00,2026-05-21 00:00:00"; line: 1, column: 6]
+  at ExecutorServiceImpl.checkScheduleTimeNumExceed(308)
+  at ExecutorServiceImpl.execProcessInstance(259)
+```
+
+**正确做法**：合一到 portal 自研的 backfill 引擎（START_PROCESS + startParams 传 `${bizdate}`），不走 DS 原生 COMPLEMENT_DATA：
+1. **删除** `ComplementModal.vue` + `complementDSWorkflow` API + `ds_proxy.py /complement` 端点（保留为 HTTP 410 提示）。
+2. **新建** `BackfillCreateModal.vue`，工作流页 + WorkflowEditor 的"补数"按钮统一弹此 Modal，调 `POST /api/backfill`。
+3. **Backfill.vue** 改为纯监控页（无创建按钮），与 DataWorks 一致：发起跟着工作流走，监控集中在运维中心。
+4. **SchedulerHistory.vue** 移除"补数"按钮（运行实例列表不发起补数，与 DataWorks/DolphinScheduler/Airflow 一致）。
+5. `_run_one()` 用 START_PROCESS 模式 + `start_params=JSON({bizdate:...})`，**不**走 COMPLEMENT_DATA，因此不传 scheduleTime，绕过 DS 此 bug。`ExecutorServiceImpl:302` 对 START_PROCESS 早返回不解析 scheduleTime。
+
+**涉及文件**：
+- 前端：`Workflow.vue`、`WorkflowEditor.vue`、`SchedulerHistory.vue`、新增 `BackfillCreateModal.vue`、改写 `Backfill.vue`、删除 `ComplementModal.vue`、`api/index.ts`
+- 后端：`ds_proxy.py`（端点改 410）、`backfill.py`（错误信息更详细）
+
+**经验**：升级第三方调度系统（DS 2.x → 3.x）时，接口契约可能悄悄变。**永远不要**让 UI 出现两个做同一件事的入口 — 用户只会用第一个见到的，第二个永远收不到反馈。竞品（DataWorks/DolphinScheduler/Airflow）的共识是发起跟着工作流走，监控独立成页。
+
+---
+

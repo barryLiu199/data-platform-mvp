@@ -135,11 +135,6 @@
                 <a-popconfirm content="确认重跑此实例？" @ok="rerun(record.id)">
                   <a-button type="text" size="mini" status="warning">重跑</a-button>
                 </a-popconfirm>
-                <a-button
-                  v-if="record.processDefinitionCode"
-                  type="text" size="mini" status="success"
-                  @click="openComplement(record)"
-                >补数</a-button>
               </a-space>
             </template>
           </a-table-column>
@@ -187,15 +182,6 @@
         <pre class="log-pre">{{ logContent || '加载中...' }}</pre>
       </a-spin>
     </a-modal>
-
-    <!-- 补数弹窗 -->
-    <ComplementModal
-      :visible="complementVisible"
-      :workflow-name="complementWorkflowName"
-      :ds-process-code="complementCode"
-      @update:visible="complementVisible = $event"
-      @success="loadInstances"
-    />
   </div>
 </template>
 
@@ -207,7 +193,6 @@ import { IconApps, IconCheckCircle, IconLoading, IconCloseCircle } from '@arco-d
 import PageHeader from '../components/PageHeader.vue'
 import FilterTabs from '../components/FilterTabs.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ComplementModal from '../components/ComplementModal.vue'
 import { getExecutionStatus } from '../constants/status'
 import type { FilterTab } from '../components/FilterTabs.vue'
 import { relativeDate, formatDuration } from '../utils/time'
@@ -243,9 +228,6 @@ const taskLoading = ref<Record<number, boolean>>({})
 const logVisible = ref(false)
 const logContent = ref('')
 const logLoading = ref(false)
-const complementVisible = ref(false)
-const complementWorkflowName = ref('')
-const complementCode = ref(0)
 const autoRefresh = ref(false)
 const lastUpdated = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
@@ -382,16 +364,6 @@ async function rerun(instanceId: number) {
 
 function goDetail(id: number) {
   router.push(`/ops/instances/${id}`)
-}
-
-function openComplement(record: Instance) {
-  if (!record.processDefinitionCode) {
-    Message.warning('该实例无关联工作流')
-    return
-  }
-  complementWorkflowName.value = record.name
-  complementCode.value = record.processDefinitionCode
-  complementVisible.value = true
 }
 
 function toggleAutoRefresh() {

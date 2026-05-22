@@ -259,44 +259,16 @@ async def complement_workflow(
     start_params: str = "",
     current_user: SysUser = Depends(require_permission("workflow:write")),
 ):
-    """补数：批量执行指定日期范围"""
-    # 日期格式校验
-    for label, val in [("开始日期", start_date), ("结束日期", end_date)]:
-        try:
-            datetime.strptime(val.strip(), "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            try:
-                datetime.strptime(val.strip(), "%Y-%m-%d")
-                # 自动补 00:00:00
-            except ValueError:
-                raise HTTPException(400, f"{label}格式不正确，应为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss")
+    """[已废弃] 旧补数端点 — 改用 POST /api/backfill。
 
-    # 规范化为 DS 需要的格式
-    def normalize_date(d: str) -> str:
-        d = d.strip()
-        if len(d) == 10:
-            d += " 00:00:00"
-        return d
-
-    schedule_time = f"{normalize_date(start_date)},{normalize_date(end_date)}"
-
-    ds = _ds()
-    pc = await _project_code(ds)
-    data = {
-        "processDefinitionCode": code,
-        "failureStrategy": "CONTINUE",
-        "warningType": "NONE",
-        "scheduleTime": schedule_time,
-        "startParams": start_params,
-        "execType": "COMPLEMENT_DATA",
-    }
-    if run_mode == "parallel":
-        data["runMode"] = "RUN_MODE_PARALLEL"
-
-    result = await ds.post(f"/projects/{pc}/executors/start-process-instance", data=data)
-    if result is None:
-        raise HTTPException(502, "补数失败")
-    return {"msg": "ok", "data": result}
+    DS 3.2.x 的 scheduleTime 期望 JSON 而非逗号分隔，此端点未适配会 502。
+    保留为 410 是为了让历史前端缓存版本得到明确错误而非神秘 502。
+    """
+    raise HTTPException(
+        410,
+        "/api/ds/workflows/{code}/complement 已废弃，请使用 /api/backfill。"
+        "对应入口：工作流页 → 更多 → 补数",
+    )
 
 
 # ─────────────────────────────────────────────

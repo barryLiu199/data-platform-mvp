@@ -303,11 +303,16 @@ async def _run_one(inst: BackfillInstance, db: Session) -> None:
         )
         if result is None:
             inst.status = "failed"
-            inst.error_msg = "DS 触发失败"
+            inst.error_msg = (
+                f"DS 触发失败：start-process-instance 返回 null（"
+                f"pd_code={wf.ds_process_code} run_date={inst.run_date}）。"
+                "通常原因：工作流未上线 / DS Master 过载 / 项目下没有 task。"
+                "请到 DS 容器日志（dmp-ds）查看具体异常。"
+            )
         else:
             inst.status = "success"
     except Exception as e:
         inst.status = "failed"
-        inst.error_msg = str(e)
+        inst.error_msg = f"{type(e).__name__}: {e}"
     finally:
         inst.finished_at = datetime.utcnow()

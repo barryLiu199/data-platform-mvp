@@ -169,8 +169,8 @@
     <!-- 补数弹窗 -->
     <ComplementModal
       :visible="complementVisible"
+      :workflow-id="complementWfId"
       :workflow-name="complementWfName"
-      :ds-process-code="complementCode"
       @update:visible="complementVisible = $event"
       @success="loadData"
     />
@@ -192,7 +192,7 @@ import PageHeader from '../components/PageHeader.vue'
 import FilterTabs from '../components/FilterTabs.vue'
 import StatusTag from '../components/StatusTag.vue'
 import EmptyState from '../components/EmptyState.vue'
-import ComplementModal from '../components/ComplementModal.vue'
+import ComplementModal from '../components/BackfillCreateModal.vue'
 import ImportModal from '../components/ImportModal.vue'
 import { getLifecycleStatus, getRunSymbol } from '../constants/status'
 import type { FilterTab } from '../components/FilterTabs.vue'
@@ -268,7 +268,7 @@ async function batchAction(action: string) {
 }
 const complementVisible = ref(false)
 const complementWfName = ref('')
-const complementCode = ref(0)
+const complementWfId = ref(0)
 const importModalVisible = ref(false)
 const projectMap = computed(() => {
   const m: Record<number, ProjectItem> = {}
@@ -409,7 +409,7 @@ function deleteWf(w: Workflow) {
 
 function openComplement(w: Workflow) {
   complementWfName.value = w.name
-  complementCode.value = w.ds_process_code!
+  complementWfId.value = w.id
   complementVisible.value = true
 }
 
