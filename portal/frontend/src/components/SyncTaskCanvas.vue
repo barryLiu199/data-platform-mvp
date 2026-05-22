@@ -674,6 +674,7 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
+  padding-right: 56px; /* 36px right-bar + 20px 原始间距 */
   background: #fff;
   border-bottom: 1px solid #E5E6EB;
 }
