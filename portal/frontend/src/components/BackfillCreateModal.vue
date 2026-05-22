@@ -91,7 +91,7 @@ async function onOk() {
       </a-form-item>
       <a-form-item label="预计实例数" v-if="estimateCount > 0">
         <span class="preview">
-          <b>{{ estimateCount }}</b> 个，每天一个，可在 <a-link href="/backfill" target="_blank">运维中心 → 补数据</a-link> 查看进度
+          <b>{{ estimateCount }}</b> 个，每天一个，可在 <a-link href="/scheduler/history" target="_blank">运行实例</a-link> 查看进度
         </span>
       </a-form-item>
     </a-form>

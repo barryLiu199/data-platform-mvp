@@ -84,12 +84,12 @@
         stripe
         :expandable="expandable"
         row-key="id"
-        :scroll="{ x: 1000 }"
+        :scroll="{ x: 1300 }"
       >
         <template #columns>
-          <a-table-column title="实例 ID" :width="90">
+          <a-table-column title="实例 ID" :width="80">
             <template #cell="{ record }">
-              <span class="mono id-link" @click="goDetail(record.id)">#{{ record.id }}</span>
+              <span class="mono id-link" @click="goDetail(record.id)">{{ record.id }}</span>
             </template>
           </a-table-column>
           <a-table-column title="工作流名称" :width="200">
@@ -97,11 +97,14 @@
               <span class="wf-name-link" @click="goDetail(record.id)">{{ record.name }}</span>
             </template>
           </a-table-column>
-          <a-table-column title="触发" :width="80">
+          <a-table-column title="触发" :width="120">
             <template #cell="{ record }">
-              <span class="trigger-tag" :class="'trigger--' + record.triggerType">
-                {{ triggerLabel(record.triggerType) }}
-              </span>
+              <div class="trigger-cell">
+                <span class="trigger-tag" :class="'trigger--' + record.triggerType">
+                  {{ triggerLabel(record.triggerType) }}
+                </span>
+                <span v-if="bizDateText(record)" class="biz-date mono">{{ bizDateText(record) }}</span>
+              </div>
             </template>
           </a-table-column>
           <a-table-column title="状态" :width="100">
@@ -113,9 +116,18 @@
               </span>
             </template>
           </a-table-column>
-          <a-table-column title="开始时间" :width="140">
+          <a-table-column title="开始时间" :width="160">
             <template #cell="{ record }">
-              <span class="mono text-muted">{{ relativeDate(record.startTime) }}</span>
+              <a-tooltip :content="record.startTime || '-'">
+                <span class="mono text-muted">{{ relativeDate(record.startTime) }}</span>
+              </a-tooltip>
+            </template>
+          </a-table-column>
+          <a-table-column title="结束时间" :width="160">
+            <template #cell="{ record }">
+              <a-tooltip :content="record.endTime || '-'">
+                <span class="mono text-muted">{{ record.endTime ? relativeDate(record.endTime) : '-' }}</span>
+              </a-tooltip>
             </template>
           </a-table-column>
           <a-table-column title="耗时" :width="80">
@@ -126,6 +138,11 @@
           <a-table-column title="重试" :width="60">
             <template #cell="{ record }">
               <span class="mono text-muted">{{ record.runTimes ?? '-' }}</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="触发人" :width="100">
+            <template #cell="{ record }">
+              <span class="text-muted">{{ record.executorName || '-' }}</span>
             </template>
           </a-table-column>
           <a-table-column title="操作" :width="180" fixed="right">
@@ -206,6 +223,7 @@ interface Instance {
   processDefinitionCode?: number
   startTime: string; endTime: string; duration: number | null
   runTimes?: number
+  scheduleTime?: string; bizDate?: string; commandType?: string; executorName?: string
 }
 interface Task {
   id: number; name: string; state: string; taskType: string
@@ -247,6 +265,15 @@ function stateInfo(state: string) {
 
 function triggerLabel(t: string) {
   return ({ manual: '手动', schedule: '调度', complement: '补数' } as any)[t] || t
+}
+
+// 业务日期：补数/调度优先显示业务日期，方便区分跑的是哪天
+function bizDateText(record: Instance): string {
+  const raw = record.bizDate || record.scheduleTime || ''
+  if (!raw) return ''
+  // 只取日期部分 "YYYY-MM-DD"
+  const m = String(raw).match(/(\d{4}-\d{2}-\d{2})/)
+  return m ? m[1] : ''
 }
 
 // KPI
@@ -318,6 +345,10 @@ async function loadInstances() {
       endTime: item.endTime,
       duration: item.duration,
       runTimes: item.runTimes,
+      scheduleTime: item.scheduleTime,
+      bizDate: item.bizDate,
+      commandType: item.commandType,
+      executorName: item.executorName,
     }))
     total.value = res.total || 0
     lastUpdated.value = 0
@@ -421,6 +452,8 @@ function stopAutoRefresh() {
 .text-muted { color: var(--color-text-tertiary); }
 
 /* 触发类型标签 */
+.trigger-cell { display: inline-flex; align-items: center; gap: 6px; }
+.biz-date { color: var(--color-text-tertiary); font-size: 11px; }
 .trigger-tag {
   display: inline-block; padding: 1px 8px; border-radius: var(--radius-full);
   font-size: 11px; font-weight: 500;

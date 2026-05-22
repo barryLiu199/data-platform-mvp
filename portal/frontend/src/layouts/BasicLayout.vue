@@ -62,10 +62,6 @@
             <template #icon><icon-history /></template>
             运行实例
           </a-menu-item>
-          <a-menu-item key="/backfill">
-            <template #icon><icon-history /></template>
-            补数据
-          </a-menu-item>
           <a-menu-item key="/alerts">
             <template #icon><icon-notification /></template>
             监控规则

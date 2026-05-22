@@ -341,6 +341,18 @@ async def list_instances(
         else:
             trigger_type = "manual"
 
+        # 业务日期：优先 scheduleTime（DS 调度/补数会写入），fallback 解析 commandParam.startParams.run_date
+        biz_date = inst.get("scheduleTime") or ""
+        cmd_param_raw = inst.get("commandParam") or ""
+        if not biz_date and cmd_param_raw:
+            try:
+                import json as _json
+                cp = _json.loads(cmd_param_raw) if isinstance(cmd_param_raw, str) else cmd_param_raw
+                sp = cp.get("StartParams") or cp.get("startParams") or {}
+                biz_date = sp.get("run_date") or sp.get("bizdate") or ""
+            except Exception:
+                pass
+
         items.append({
             "id": inst.get("id"),
             "processDefinitionCode": pd_code,
@@ -351,6 +363,10 @@ async def list_instances(
             "endTime": end,
             "duration": duration,
             "runTimes": inst.get("runTimes"),
+            "scheduleTime": inst.get("scheduleTime"),
+            "bizDate": biz_date,
+            "commandType": cmd_type,
+            "executorName": inst.get("executorName") or "",
         })
 
     # keyword 也按 Portal 名称做 Python 侧过滤（DS searchVal 只搜 DS 名称）

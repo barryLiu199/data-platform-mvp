@@ -89,12 +89,6 @@ const router = createRouter({
           meta: { title: '实例详情' },
         },
         {
-          path: 'backfill',
-          name: 'Backfill',
-          component: () => import('../views/Backfill.vue'),
-          meta: { title: '补数据' },
-        },
-        {
           path: 'data-assets',
           name: 'DataAssets',
           component: () => import('../views/DataAssets.vue'),
