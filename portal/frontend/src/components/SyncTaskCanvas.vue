@@ -1,5 +1,10 @@
 <template>
   <div class="task-canvas" v-if="ready">
+    <!-- 锁定提示 -->
+    <div v-if="locked && !isLockedByMe" class="lock-bar">
+      <icon-lock style="font-size: 14px;" />
+      <span>该任务正在被其他用户编辑，当前为只读模式</span>
+    </div>
     <!-- 顶栏 -->
     <div class="canvas-header">
       <div class="title-area">
@@ -8,29 +13,30 @@
           placeholder="同步任务名称"
           class="task-title-input"
           size="large"
-          :disabled="isOnline"
+          :disabled="isOnline || (locked && !isLockedByMe)"
         />
-        <a-tag :color="getSyncTaskStatus(task?.status || 'draft').tagColor" size="small">
-          {{ getSyncTaskStatus(task?.status || 'draft').label }}
-        </a-tag>
-        <span class="path-hint" v-if="form.source_table || form.target_table">
-          {{ form.source_table || '?' }} → {{ form.target_table || '?' }}
-        </span>
       </div>
       <div class="action-area">
+        <a-button
+          v-if="props.taskId"
+          type="primary"
+          @click="handleRun"
+          :loading="running"
+          :disabled="locked && !isLockedByMe"
+        >
+          <template #icon><icon-play-arrow /></template>
+          运行
+        </a-button>
         <a-button @click="loadPreview" :loading="previewing">
           <template #icon><icon-eye /></template>
           预览 DataX
-        </a-button>
-        <a-button @click="$emit('open-script')">
-          <template #icon><icon-code /></template>
-          脚本模式
         </a-button>
         <a-button
           v-if="!isOnline"
           type="primary"
           @click="handleSave"
           :loading="saving"
+          :disabled="locked && !isLockedByMe"
         >
           <template #icon><icon-save /></template>
           保存
@@ -40,6 +46,7 @@
           status="success"
           @click="handleOnline"
           :loading="toggling"
+          :disabled="locked && !isLockedByMe"
         >
           <template #icon><icon-unlock /></template>
           上线
@@ -48,6 +55,7 @@
           v-if="props.taskId && isOnline"
           @click="handleOffline"
           :loading="toggling"
+          :disabled="locked && !isLockedByMe"
         >
           <template #icon><icon-lock /></template>
           下线
@@ -272,20 +280,22 @@ import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import {
   IconImport, IconExport, IconSync, IconSwap, IconEye, IconCode,
-  IconSave, IconFolder, IconLock, IconUnlock,
+  IconSave, IconFolder, IconLock, IconUnlock, IconPlayArrow,
 } from '@arco-design/web-vue/es/icon'
 import {
   getSyncTask, createSyncTask, updateSyncTask, previewSyncTaskUnsaved,
   getDatasources, getMetadataTables, getMetadataColumns,
   generateDDL, executeDDL, setSyncTaskStatus, createComponent,
+  runSyncTask,
 } from '../api'
 import FieldMappingCanvas from './FieldMappingCanvas.vue'
-import { getSyncTaskStatus } from '../constants/status'
 
 const props = defineProps<{
   taskId: number | null  // null = 新建态
   projectId?: number | null
   projects: any[]
+  locked?: boolean
+  lockedByMe?: boolean
 }>()
 
 const emit = defineEmits<{ 'saved': [task: any]; 'open-script': []; 'status-changed': [task: any] }>()
@@ -320,7 +330,10 @@ const sourceTableOptions = ref<string[]>([])
 const targetTableOptions = ref<string[]>([])
 
 const isOnline = computed(() => task.value?.status === 'active')
+const locked = computed(() => props.locked ?? false)
+const isLockedByMe = computed(() => props.lockedByMe ?? true)
 const toggling = ref(false)
+const running = ref(false)
 
 const saving = ref(false)
 const previewing = ref(false)
@@ -543,6 +556,25 @@ async function handleOffline() {
   } catch {} finally { toggling.value = false }
 }
 
+async function handleRun() {
+  if (!props.taskId) { Message.warning('请先保存任务'); return }
+  running.value = true
+  try {
+    const res: any = await runSyncTask(props.taskId)
+    if (res.success) {
+      Message.success(`运行成功 · ${res.duration_ms}ms`)
+    } else {
+      Message.error('运行失败，请查看日志')
+    }
+    if (res.stdout || res.stderr) {
+      console.log('[DataX stdout]', res.stdout)
+      if (res.stderr) console.warn('[DataX stderr]', res.stderr)
+    }
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '运行失败')
+  } finally { running.value = false }
+}
+
 async function loadPreview() {
   if (!form.source_id || !form.target_id || !form.source_table || !form.target_table) {
     Message.warning('请先填写来源/目标信息')
@@ -661,13 +693,16 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 15px;
 }
-.path-hint {
-  font-size: 12px;
-  color: #86909C;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+.lock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  background: #FFF7E8;
+  border-bottom: 1px solid #FFCF8B;
+  font-size: 13px;
+  color: #D25F00;
 }
 
 .action-area {
@@ -675,6 +710,7 @@ onMounted(async () => {
   gap: 8px;
   align-items: center;
   flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 
 .canvas-body {

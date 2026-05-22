@@ -60,7 +60,9 @@ export const previewSyncTaskDataX = (id: number) => api.get(`/sync-tasks/${id}/p
 export const previewSyncTaskUnsaved = (data: any) => api.post('/sync-tasks/preview', data)
 export const testSyncTaskConnection = (data: { datasource_id: number; table?: string }) =>
   api.post('/sync-tasks/test-connection', data)
-export const runSyncTask = (_id: number) => Promise.reject(new Error('已废弃：请通过工作流运行数据同步任务'))
+export const runSyncTask = (id: number) => api.post(`/sync-tasks/${id}/run`)
+export const lockSyncTask = (id: number) => api.post(`/sync-tasks/${id}/lock`)
+export const unlockSyncTask = (id: number) => api.post(`/sync-tasks/${id}/unlock`)
 export const publishSyncTaskAsWorkflow = (id: number) => api.post(`/sync-tasks/${id}/publish-as-workflow`)
 
 // Alert Rules (监控规则)
@@ -170,6 +172,8 @@ export const quickPublishComponent = (id: number) =>
   api.post(`/components/${id}/quick-publish`)
 export const setComponentStatus = (id: number, status: string) =>
   api.put(`/components/${id}/status`, { status })
+export const lockComponent = (id: number) => api.post(`/components/${id}/lock`)
+export const unlockComponent = (id: number) => api.post(`/components/${id}/unlock`)
 // Component Move / Reorder
 export const moveComponent = (id: number, folderId?: number | null, sortOrder?: number) =>
   api.put(`/components/${id}/move`, { folder_id: folderId ?? 0, sort_order: sortOrder })

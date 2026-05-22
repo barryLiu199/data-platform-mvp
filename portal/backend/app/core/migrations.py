@@ -19,6 +19,7 @@ def run_all_migrations():
     _migrate_alert_rule_channel_ids()
     _migrate_workflow_params()
     _migrate_table_lineage()
+    _migrate_lock_columns()
 
 
 def _migrate_table_lineage():
@@ -306,5 +307,26 @@ def _migrate_workflow_params():
             if 'params_json' not in existing:
                 conn.execute(text(
                     f"ALTER TABLE {table} ADD COLUMN params_json JSON NULL COMMENT '工作流全局参数'"
+                ))
+                conn.commit()
+
+
+def _migrate_lock_columns():
+    """给 component 和 sync_task 表加编辑锁字段"""
+    with engine.connect() as conn:
+        for table in ('component', 'sync_task'):
+            rows = conn.execute(text(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tbl"
+            ), {"tbl": table}).fetchall()
+            existing = {r[0] for r in rows}
+            if 'locked_by' not in existing:
+                conn.execute(text(
+                    f"ALTER TABLE `{table}` ADD COLUMN locked_by BIGINT NULL COMMENT '编辑锁持有者 user_id'"
+                ))
+                conn.commit()
+            if 'locked_at' not in existing:
+                conn.execute(text(
+                    f"ALTER TABLE `{table}` ADD COLUMN locked_at DATETIME NULL COMMENT '抢锁时间'"
                 ))
                 conn.commit()

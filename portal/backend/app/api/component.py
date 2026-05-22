@@ -2,6 +2,7 @@ import time
 import subprocess
 import tempfile
 import os
+from datetime import datetime, timedelta
 from typing import Optional, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -129,6 +130,12 @@ def _json_val(v):
 
 def _serialize(c: Component) -> dict:
     status = c.status
+    locked_by = getattr(c, 'locked_by', None)
+    locked_at = getattr(c, 'locked_at', None)
+    # 30分钟 TTL
+    if locked_by and locked_at and datetime.utcnow() - locked_at > timedelta(minutes=30):
+        locked_by = None
+        locked_at = None
     return {
         "id": c.id,
         "name": c.name,
@@ -146,6 +153,8 @@ def _serialize(c: Component) -> dict:
         "datasource_id": (c.config_json or {}).get('datasource_id'),
         "created_at": str(c.created_at) if c.created_at else None,
         "updated_at": str(c.updated_at) if c.updated_at else None,
+        "locked_by": locked_by,
+        "locked_at": str(locked_at) if locked_at else None,
     }
 
 
@@ -385,6 +394,7 @@ def update_component(
     current_user: SysUser = Depends(require_permission("component:write")),
 ):
     c = _get_or_404(db, comp_id)
+    _check_lock(c, current_user)
     if c.status not in EDITABLE_STATUSES:
         raise HTTPException(
             status_code=400,
@@ -419,6 +429,7 @@ def delete_component(
     current_user: SysUser = Depends(require_permission("component:write")),
 ):
     c = _get_or_404(db, comp_id)
+    _check_lock(c, current_user)
     if c.status not in DELETABLE_STATUSES:
         raise HTTPException(
             status_code=400,
@@ -428,6 +439,64 @@ def delete_component(
     db.delete(c)
     db.commit()
     return {"message": "删除成功"}
+
+
+LOCK_TTL = timedelta(minutes=30)
+
+
+def _check_lock(c: Component, current_user: SysUser):
+    """检查锁：若被他人持有且未过期则拒绝"""
+    if not c.locked_by:
+        return
+    if c.locked_by == current_user.id:
+        return
+    if c.locked_at and datetime.utcnow() - c.locked_at > LOCK_TTL:
+        return  # 已过期
+    raise HTTPException(status_code=409, detail=f"组件正在被其他用户编辑(user_id={c.locked_by})")
+
+
+@router.post("/{comp_id}/lock")
+def lock_component(
+    comp_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(require_permission("component:write")),
+):
+    """抢锁"""
+    c = _get_or_404(db, comp_id)
+    # 已被自己锁定 → 续期
+    if c.locked_by == current_user.id:
+        c.locked_at = datetime.utcnow()
+        db.commit()
+        return {"locked": True, "locked_by": current_user.id}
+    # 被他人锁定且未过期
+    if c.locked_by and c.locked_at and datetime.utcnow() - c.locked_at < LOCK_TTL:
+        from app.models.user import SysUser as UserModel
+        holder = db.query(UserModel).filter(UserModel.id == c.locked_by).first()
+        holder_name = holder.username if holder else str(c.locked_by)
+        raise HTTPException(status_code=409, detail=f"组件正在被 {holder_name} 编辑")
+    # 抢锁
+    c.locked_by = current_user.id
+    c.locked_at = datetime.utcnow()
+    db.commit()
+    return {"locked": True, "locked_by": current_user.id}
+
+
+@router.post("/{comp_id}/unlock")
+def unlock_component(
+    comp_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(get_current_user),
+):
+    """释放锁（持有者或管理员）"""
+    c = _get_or_404(db, comp_id)
+    if c.locked_by and c.locked_by != current_user.id:
+        # 非持有者：仅管理员可强制解锁
+        if not any(r.name == 'admin' for r in getattr(current_user, 'roles', [])):
+            raise HTTPException(status_code=403, detail="只有锁持有者或管理员可解锁")
+    c.locked_by = None
+    c.locked_at = None
+    db.commit()
+    return {"locked": False}
 
 
 # ===== 运行组件 =====

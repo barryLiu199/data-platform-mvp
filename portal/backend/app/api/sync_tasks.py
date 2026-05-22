@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 from typing import Optional, List, Any
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,8 @@ def _serialize(task: SyncTask) -> dict:
         "last_run_time": str(task.last_run_time) if task.last_run_time else None,
         "last_run_status": task.last_run_status,
         "created_at": str(task.created_at) if task.created_at else None,
+        "locked_by": getattr(task, 'locked_by', None),
+        "locked_at": str(task.locked_at) if getattr(task, 'locked_at', None) else None,
     }
 
 
@@ -140,6 +143,63 @@ def get_task(
     return _serialize(task)
 
 
+LOCK_TTL = timedelta(minutes=30)
+
+
+def _check_lock(task: SyncTask, current_user: SysUser):
+    locked_by = getattr(task, 'locked_by', None)
+    locked_at = getattr(task, 'locked_at', None)
+    if not locked_by:
+        return
+    if locked_by == current_user.id:
+        return
+    if locked_at and datetime.utcnow() - locked_at > LOCK_TTL:
+        return
+    raise HTTPException(status_code=409, detail=f"任务正在被其他用户编辑(user_id={locked_by})")
+
+
+@router.post("/{task_id}/lock")
+def lock_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(require_permission("sync:write")),
+):
+    task = db.query(SyncTask).filter(SyncTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.locked_by == current_user.id:
+        task.locked_at = datetime.utcnow()
+        db.commit()
+        return {"locked": True, "locked_by": current_user.id}
+    if task.locked_by and task.locked_at and datetime.utcnow() - task.locked_at < LOCK_TTL:
+        from app.models.user import SysUser as UserModel
+        holder = db.query(UserModel).filter(UserModel.id == task.locked_by).first()
+        holder_name = holder.username if holder else str(task.locked_by)
+        raise HTTPException(status_code=409, detail=f"任务正在被 {holder_name} 编辑")
+    task.locked_by = current_user.id
+    task.locked_at = datetime.utcnow()
+    db.commit()
+    return {"locked": True, "locked_by": current_user.id}
+
+
+@router.post("/{task_id}/unlock")
+def unlock_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(get_current_user),
+):
+    task = db.query(SyncTask).filter(SyncTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.locked_by and task.locked_by != current_user.id:
+        if not any(r.name == 'admin' for r in getattr(current_user, 'roles', [])):
+            raise HTTPException(status_code=403, detail="只有锁持有者或管理员可解锁")
+    task.locked_by = None
+    task.locked_at = None
+    db.commit()
+    return {"locked": False}
+
+
 @router.put("/{task_id}")
 def update_task(
     task_id: int,
@@ -151,6 +211,7 @@ def update_task(
     task = db.query(SyncTask).filter(SyncTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
+    _check_lock(task, current_user)
     data = req.model_dump(exclude_unset=True)
     if "field_mapping" in data:
         fm = data.pop("field_mapping")
@@ -308,6 +369,71 @@ def test_connection(
     from app.core.db_adapter import test_connection as adapter_test
     ok, msg = adapter_test(ds, table=req.table)
     return {"ok": ok, "message": msg}
+
+
+@router.post("/{task_id}/run")
+def run_sync_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(require_permission("sync:write")),
+):
+    """手动运行同步任务：生成 DataX JSON 并执行"""
+    import json
+    import time
+    import subprocess
+    import tempfile
+
+    task = db.query(SyncTask).filter(SyncTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    src = db.query(DataSource).filter(DataSource.id == task.source_id).first()
+    dst = db.query(DataSource).filter(DataSource.id == task.target_id).first()
+    if not src or not dst:
+        raise HTTPException(status_code=400, detail="任务关联的数据源已被删除")
+
+    from app.core.datax_builder import build_for_sync_task
+    try:
+        datax_job = build_for_sync_task(task, src, dst, mask_password=False)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # 写入临时文件执行
+    with tempfile.NamedTemporaryFile(
+        suffix=".json", mode="w", delete=False, encoding="utf-8"
+    ) as f:
+        json.dump(datax_job, f, ensure_ascii=False)
+        tmp_path = f.name
+
+    start = time.time()
+    try:
+        result = subprocess.run(
+            ["python", "/opt/datax/bin/datax.py", tmp_path],
+            capture_output=True, text=True, timeout=600,
+        )
+        duration_ms = int((time.time() - start) * 1000)
+        success = result.returncode == 0
+
+        # 更新运行状态
+        task.last_run_time = datetime.utcnow()
+        task.last_run_status = "SUCCESS" if success else "FAILURE"
+        db.commit()
+
+        return {
+            "success": success,
+            "exit_code": result.returncode,
+            "stdout": result.stdout[-5000:] if result.stdout else "",
+            "stderr": result.stderr[-2000:] if result.stderr else "",
+            "duration_ms": duration_ms,
+        }
+    except subprocess.TimeoutExpired:
+        task.last_run_time = datetime.utcnow()
+        task.last_run_status = "FAILURE"
+        db.commit()
+        raise HTTPException(status_code=504, detail="DataX 执行超时(>600s)")
+    finally:
+        import os
+        os.unlink(tmp_path)
 
 
 @router.post("/{task_id}/publish-as-workflow")

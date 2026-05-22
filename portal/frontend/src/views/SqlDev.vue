@@ -160,6 +160,8 @@
           <SyncTaskCanvas
             :task-id="activeTab.syncTaskId ?? null"
             :projects="projects"
+            :locked="currentLockState().locked"
+            :locked-by-me="currentLockState().lockedByMe"
             @saved="onDataxSaved"
             style="flex: 1; overflow: auto;"
           />
@@ -167,6 +169,11 @@
 
         <!-- 代码编辑器（非 datax tab） -->
         <template v-else-if="activeTab">
+          <!-- 锁定提示 -->
+          <div v-if="currentLockState().locked && !currentLockState().lockedByMe" class="lock-bar">
+            <icon-lock style="font-size: 14px;" />
+            <span>该组件正在被其他用户编辑，当前为只读模式</span>
+          </div>
           <!-- 工具栏 -->
           <div class="ide-toolbar">
             <a-select
@@ -464,6 +471,7 @@ import {
   setComponentStatus, resumeComponent,
   deleteSyncTask, getProjects,
   exportComponents,
+  lockComponent, unlockComponent, lockSyncTask, unlockSyncTask,
 } from '../api'
 import SyncTaskCanvas from '../components/SyncTaskCanvas.vue'
 import SyncTaskWizard from '../components/SyncTaskWizard.vue'
@@ -523,7 +531,51 @@ const {
 
 // 包装 switchTab/closeTab 以同时清理 result
 function switchTab(key: string) { _switchTab(key); result.value = null }
-function closeTab(key: string) { _closeTab(key); result.value = null }
+function closeTab(key: string) {
+  // 释放锁
+  const tab = tabs.value.find(t => t.key === key)
+  if (tab) releaseLock(tab)
+  _closeTab(key); result.value = null
+}
+
+// ---- 编辑锁管理 ----
+const lockStates = ref<Record<string, { locked: boolean; lockedByMe: boolean }>>({})
+
+async function acquireLock(tab: Tab) {
+  if (!tab.componentId && !tab.syncTaskId) return
+  const tabKey = tab.key
+  try {
+    if (tab.language === 'datax' && tab.syncTaskId) {
+      await lockSyncTask(tab.syncTaskId)
+    } else if (tab.componentId) {
+      await lockComponent(tab.componentId)
+    }
+    lockStates.value[tabKey] = { locked: true, lockedByMe: true }
+  } catch (e: any) {
+    if (e?.response?.status === 409) {
+      lockStates.value[tabKey] = { locked: true, lockedByMe: false }
+      Message.warning(e.response.data?.detail || '组件正在被其他用户编辑')
+    }
+  }
+}
+
+async function releaseLock(tab: Tab) {
+  const state = lockStates.value[tab.key]
+  if (!state?.lockedByMe) return
+  try {
+    if (tab.language === 'datax' && tab.syncTaskId) {
+      await unlockSyncTask(tab.syncTaskId)
+    } else if (tab.componentId) {
+      await unlockComponent(tab.componentId)
+    }
+  } catch {}
+  delete lockStates.value[tab.key]
+}
+
+function currentLockState() {
+  if (!activeTab.value) return { locked: false, lockedByMe: true }
+  return lockStates.value[activeTab.value.key] || { locked: false, lockedByMe: true }
+}
 
 // ---- Tab 溢出管理 ----
 const tabsScrollRef = ref<HTMLElement | null>(null)
@@ -567,6 +619,33 @@ onMounted(() => {
 onUnmounted(() => { tabResizeObserver?.disconnect() })
 // 当 tab 数量变化时重新计算溢出
 watch(() => tabs.value.length, () => { nextTick(() => recalcVisibleTabs()) })
+
+// ---- 锁: 切换 tab 时自动抢锁 ----
+watch(() => activeTab.value?.key, (newKey) => {
+  if (!newKey) return
+  const tab = tabs.value.find(t => t.key === newKey)
+  if (tab && (tab.componentId || tab.syncTaskId) && !lockStates.value[newKey]) {
+    acquireLock(tab)
+  }
+})
+
+// 页面卸载时释放所有锁
+function releaseAllLocks() {
+  for (const tab of tabs.value) {
+    const state = lockStates.value[tab.key]
+    if (state?.lockedByMe) {
+      if (tab.language === 'datax' && tab.syncTaskId) {
+        navigator.sendBeacon(`/api/sync-tasks/${tab.syncTaskId}/unlock`)
+      } else if (tab.componentId) {
+        navigator.sendBeacon(`/api/components/${tab.componentId}/unlock`)
+      }
+    }
+  }
+}
+onUnmounted(() => releaseAllLocks())
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', releaseAllLocks)
+}
 
 // ---- 右侧面板 ----
 const activeRightPanel = ref<string | null>(null)
@@ -1125,6 +1204,19 @@ onMounted(() => Promise.all([loadFolders(), loadComponents(), loadDatasources(),
   padding: 0 8px !important;
   height: 26px;
   font-weight: 500;
+}
+
+/* Lock bar */
+.lock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #FFF7E8;
+  border-bottom: 1px solid #FFCF8B;
+  font-size: 13px;
+  color: #D25F00;
+  flex-shrink: 0;
 }
 
 /* Toolbar */

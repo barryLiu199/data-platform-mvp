@@ -31,3 +31,5 @@ class SyncTask(Base):
     created_by = Column(BigInteger)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    locked_by = Column(BigInteger, comment="编辑锁持有者 user_id")
+    locked_at = Column(DateTime, comment="抢锁时间")
