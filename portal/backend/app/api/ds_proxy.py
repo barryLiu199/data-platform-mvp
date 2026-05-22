@@ -1,6 +1,7 @@
 """DolphinScheduler API 代理路由 — 所有 /api/ds/* 端点"""
 import logging
 from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.core.security import get_current_user
 from app.core.permissions import require_permission
 from app.models.user import SysUser
 from app.models.workflow import Workflow
+from app.models.project import Project
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ds", tags=["DolphinScheduler 代理"])
@@ -284,10 +286,16 @@ async def list_instances(
     endDate: str = "",
     processDefinitionCode: int = 0,
     keyword: str = "",
+    project_id: int = -1,
+    triggerType: str = "",
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(get_current_user),
 ):
-    """运行记录列表（所有工作流的实例）"""
+    """运行记录列表（所有工作流的实例）
+
+    project_id: -1=全部, 0=未分组(IS NULL OR =0), 其他=指定项目
+    triggerType: ''=全部, 'manual'/'schedule'/'complement'
+    """
     ds = _ds()
     pc = await _project_code(ds)
     params = {"pageNo": pageNo, "pageSize": pageSize}
@@ -302,15 +310,42 @@ async def list_instances(
     if keyword:
         params["searchVal"] = keyword
 
+    # project_id 过滤：先收集该项目下的 ds_process_code 集合
+    allowed_codes: Optional[set] = None
+    if project_id != -1:
+        wf_q = db.query(Workflow.ds_process_code).filter(Workflow.ds_process_code.isnot(None))
+        if project_id == 0:
+            wf_q = wf_q.filter((Workflow.project_id.is_(None)) | (Workflow.project_id == 0))
+        else:
+            wf_q = wf_q.filter(Workflow.project_id == project_id)
+        allowed_codes = {row[0] for row in wf_q.all()}
+        if not allowed_codes:
+            return {"list": [], "total": 0}
+        # 若同时指定了单个 processDefinitionCode，必须在该项目下
+        if processDefinitionCode and processDefinitionCode not in allowed_codes:
+            return {"list": [], "total": 0}
+
     data = await ds.get(f"/projects/{pc}/process-instances", params=params)
     if not data:
         return {"list": [], "total": 0}
 
-    # 构建 ds_process_code → Portal 工作流名称 的映射
-    all_wf = db.query(Workflow.ds_process_code, Workflow.name).filter(
-        Workflow.ds_process_code.isnot(None)
-    ).all()
-    code_to_name = {wf.ds_process_code: wf.name for wf in all_wf}
+    # 构建 ds_process_code → (workflow_name, project_id, project_name, project_color)
+    rows = (
+        db.query(
+            Workflow.ds_process_code,
+            Workflow.name,
+            Workflow.project_id,
+            Project.name,
+            Project.color,
+        )
+        .outerjoin(Project, Workflow.project_id == Project.id)
+        .filter(Workflow.ds_process_code.isnot(None))
+        .all()
+    )
+    code_to_info = {
+        r[0]: {"name": r[1], "project_id": r[2], "project_name": r[3], "project_color": r[4]}
+        for r in rows
+    }
 
     items = []
     for inst in data.get("totalList", []):
@@ -325,9 +360,10 @@ async def list_instances(
                 pass
 
         pd_code = inst.get("processDefinitionCode")
+        info = code_to_info.get(pd_code) or {}
         # 优先用 Portal 工作流名称，fallback 到 DS 名称，再 fallback 到 code
         name = (
-            code_to_name.get(pd_code)
+            info.get("name")
             or inst.get("processDefinitionName")
             or (f"工作流-{pd_code}" if pd_code else f"实例-{inst.get('id')}")
         )
@@ -340,6 +376,13 @@ async def list_instances(
             trigger_type = "schedule"
         else:
             trigger_type = "manual"
+
+        # 项目归属过滤
+        if allowed_codes is not None and pd_code not in allowed_codes:
+            continue
+        # 触发类型过滤（DS 端不支持，前置在此）
+        if triggerType and trigger_type != triggerType:
+            continue
 
         # 业务日期：优先 scheduleTime（DS 调度/补数会写入），fallback 解析 commandParam.startParams.run_date
         biz_date = inst.get("scheduleTime") or ""
@@ -357,6 +400,9 @@ async def list_instances(
             "id": inst.get("id"),
             "processDefinitionCode": pd_code,
             "name": name,
+            "projectId": info.get("project_id"),
+            "projectName": info.get("project_name"),
+            "projectColor": info.get("project_color"),
             "state": _fmt_state(inst.get("state")),
             "triggerType": trigger_type,
             "startTime": start,

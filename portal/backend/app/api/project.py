@@ -149,9 +149,11 @@ def get_project(
     if not p:
         raise HTTPException(status_code=404, detail="项目不存在")
     cnt = db.query(func.count(SyncTask.id)).filter(SyncTask.project_id == p.id).scalar() or 0
+    wf_cnt = db.query(func.count(Workflow.id)).filter(Workflow.project_id == p.id).scalar() or 0
     if p.is_default:
         cnt += db.query(func.count(SyncTask.id)).filter(SyncTask.project_id.is_(None)).scalar() or 0
-    return _serialize(p, cnt)
+        wf_cnt += db.query(func.count(Workflow.id)).filter(Workflow.project_id.is_(None)).scalar() or 0
+    return _serialize(p, cnt, wf_cnt)
 
 
 @router.put("/{project_id}")
@@ -177,7 +179,8 @@ def update_project(
     db.commit()
     db.refresh(p)
     cnt = db.query(func.count(SyncTask.id)).filter(SyncTask.project_id == p.id).scalar() or 0
-    return _serialize(p, cnt)
+    wf_cnt = db.query(func.count(Workflow.id)).filter(Workflow.project_id == p.id).scalar() or 0
+    return _serialize(p, cnt, wf_cnt)
 
 
 @router.delete("/{project_id}")

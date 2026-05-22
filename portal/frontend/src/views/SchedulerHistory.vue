@@ -54,6 +54,20 @@
     <div class="filter-bar">
       <a-space>
         <a-select
+          v-model="projectFilter"
+          placeholder="全部项目"
+          style="width: 160px;"
+          allow-clear
+          @change="loadInstances"
+        >
+          <a-option :value="0">
+            <span class="project-opt"><span class="project-dot" style="background:#C9CDD4"></span>未分组</span>
+          </a-option>
+          <a-option v-for="p in projects" :key="p.id" :value="p.id">
+            <span class="project-opt"><span class="project-dot" :style="{ background: p.color }"></span>{{ p.name }}</span>
+          </a-option>
+        </a-select>
+        <a-select
           v-model="workflowFilter"
           placeholder="全部工作流"
           style="width: 180px;"
@@ -61,6 +75,17 @@
           @change="loadInstances"
         >
           <a-option v-for="w in workflowList" :key="w.code" :value="w.code">{{ w.name }}</a-option>
+        </a-select>
+        <a-select
+          v-model="triggerFilter"
+          placeholder="全部触发"
+          style="width: 120px;"
+          allow-clear
+          @change="loadInstances"
+        >
+          <a-option value="manual">手动</a-option>
+          <a-option value="schedule">调度</a-option>
+          <a-option value="complement">补数</a-option>
         </a-select>
         <a-input-search
           v-model="keyword"
@@ -84,7 +109,7 @@
         stripe
         :expandable="expandable"
         row-key="id"
-        :scroll="{ x: 1300 }"
+        :scroll="{ x: 1420 }"
       >
         <template #columns>
           <a-table-column title="实例 ID" :width="80">
@@ -95,6 +120,15 @@
           <a-table-column title="工作流名称" :width="200">
             <template #cell="{ record }">
               <span class="wf-name-link" @click="goDetail(record.id)">{{ record.name }}</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="归属" :width="120">
+            <template #cell="{ record }">
+              <span v-if="record.projectName" class="project-cell">
+                <span class="project-dot" :style="{ background: record.projectColor || '#86909C' }"></span>
+                {{ record.projectName }}
+              </span>
+              <span v-else class="text-muted">未分组</span>
             </template>
           </a-table-column>
           <a-table-column title="触发" :width="120">
@@ -215,12 +249,13 @@ import type { FilterTab } from '../components/FilterTabs.vue'
 import { relativeDate, formatDuration } from '../utils/time'
 import {
   getDSInstances, getDSInstanceTasks, getDSTaskLog, rerunDSInstance,
-  getWorkflows,
+  getWorkflows, getProjects,
 } from '../api'
 
 interface Instance {
   id: number; name: string; state: string; triggerType: string
   processDefinitionCode?: number
+  projectId?: number | null; projectName?: string | null; projectColor?: string | null
   startTime: string; endTime: string; duration: number | null
   runTimes?: number
   scheduleTime?: string; bizDate?: string; commandType?: string; executorName?: string
@@ -241,6 +276,9 @@ const dateRange = ref<string[]>([])
 const keyword = ref('')
 const workflowFilter = ref<number | undefined>(undefined)
 const workflowList = ref<{ code: number; name: string }[]>([])
+const projectFilter = ref<number | undefined>(undefined)
+const projects = ref<{ id: number; name: string; color: string }[]>([])
+const triggerFilter = ref<string | undefined>(undefined)
 const taskMap = ref<Record<number, Task[]>>({})
 const taskLoading = ref<Record<number, boolean>>({})
 const logVisible = ref(false)
@@ -315,6 +353,11 @@ onMounted(async () => {
       .filter((w: any) => w.ds_process_code)
       .map((w: any) => ({ code: w.ds_process_code, name: w.name }))
   } catch {}
+  // 加载项目列表
+  try {
+    const res: any = await getProjects()
+    projects.value = (res?.items || []).map((p: any) => ({ id: p.id, name: p.name, color: p.color }))
+  } catch {}
   loadInstances()
 })
 
@@ -333,6 +376,8 @@ async function loadInstances() {
       params.endDate = dateRange.value[1]
     }
     if (workflowFilter.value) params.processDefinitionCode = workflowFilter.value
+    if (projectFilter.value !== undefined) params.project_id = projectFilter.value
+    if (triggerFilter.value) params.triggerType = triggerFilter.value
     if (keyword.value) params.keyword = keyword.value
     const res: any = await getDSInstances(params)
     instances.value = (res.list || []).map((item: any) => ({
@@ -341,6 +386,9 @@ async function loadInstances() {
       state: item.state,
       triggerType: item.triggerType || 'manual',
       processDefinitionCode: item.processDefinitionCode,
+      projectId: item.projectId,
+      projectName: item.projectName,
+      projectColor: item.projectColor,
       startTime: item.startTime,
       endTime: item.endTime,
       duration: item.duration,
@@ -461,6 +509,11 @@ function stopAutoRefresh() {
 .trigger--manual     { background: var(--color-bg-elevated); color: var(--color-text-secondary); }
 .trigger--schedule   { background: #EFF6FF; color: #2563EB; }
 .trigger--complement { background: #F5F3FF; color: #8B5CF6; }
+
+/* 项目归属 */
+.project-opt { display: inline-flex; align-items: center; gap: 6px; }
+.project-cell { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); }
+.project-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
 /* 状态标签 */
 .state-badge {
