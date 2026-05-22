@@ -182,10 +182,16 @@ services:
       DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD}@mysql:3306/portal_db
       SECRET_KEY: ${PORTAL_SECRET_KEY}
       DS_API_URL: http://dolphinscheduler:12345/dolphinscheduler
+      DS_ADMIN_PASSWORD: ${DS_ADMIN_PASSWORD}
       OM_API_URL: http://openmetadata-server:8585
       DATAX_HOME: /opt/datax
       DATAX_JOBS_DIR: /opt/datax/jobs
       DATAX_EXEC_CONTAINER: dmp-ds
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      COOKIE_SECURE: ${COOKIE_SECURE}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
     expose:
       - "8000"
     volumes:

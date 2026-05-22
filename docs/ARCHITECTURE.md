@@ -70,33 +70,57 @@
 
 ---
 
-### [低] 后端 Dockerfile 使用 --reload（开发模式）
+### [低] 后端 Dockerfile 使用 --reload(开发模式)
 
-**问题**：`CMD ["uvicorn", "main:app", "--reload", ...]` 在生产环境不应开启 reload，有安全风险且性能差。
+**问题**:`CMD ["uvicorn", "main:app", "--reload", ...]` 在生产环境不应开启 reload,有安全风险且性能差。
 
-**建议方案**：上线前去掉 `--reload`，加 `--workers 2`。
+**建议方案**:上线前去掉 `--reload`,加 `--workers 2`。
+
+**状态**:✅ 已解决(2026-05-22)— 切换为 `gunicorn -k uvicorn.workers.UvicornWorker -w ${GUNICORN_WORKERS:-4}`,worker/timeout 走环境变量。
+
+---
+
+### [中] 前端 build 跳过 vue-tsc 类型检查
+
+**问题**:`package.json` 的 `build` 只跑 `vite build`,未跑 `vue-tsc --noEmit`,类型错误进不了 CI 门禁。当前累积 10 个历史类型错误(主要来自 Arco Design 类型签名严格化)。
+
+**风险**:类型层的契约破坏被静默放过,组件 props/事件签名漂移。
+
+**建议方案**:
+- 新增 `type-check` 与 `build:strict` 脚本,CI/上线前必跑 `build:strict`。
+- 旧错误分批清理:先把 admin/Roles、admin/Sso、admin/Users、SqlDev、Workflow、WorkflowEditor 这 6 个文件的类型错误清掉,即可启用 `build:strict` 作为默认 `build`。
 
 ---
 
 ### [低] .env 含真实密码提交到仓库
 
-**问题**：MVP 阶段为方便部署，`.env` 未加入 `.gitignore`，密码明文在仓库中。
+**问题**:MVP 阶段为方便部署,`.env` 未加入 `.gitignore`,密码明文在仓库中。
 
-**建议方案**：正式上线前将 `.env` 加入 `.gitignore`，密码改为 docker-compose secrets 或环境变量注入。
+**建议方案**:正式上线前将 `.env` 加入 `.gitignore`,密码改为 docker-compose secrets 或环境变量注入。`git filter-repo` 清洗历史。
+
+**状态**:未解决(下批次处理,需 force-push)。
 
 ---
 
 ### [低] CORS 配置为 * + Cookie 无 Secure 标志
 
-**问题**：`CORS allow_origins=["*"]`，`COOKIE_SECURE=False`，仅适用于 HTTP 内网环境。
+**问题**:`CORS allow_origins=["*"]`,`COOKIE_SECURE=False`,仅适用于 HTTP 内网环境。
 
-**建议方案**：上线前改为明确域名，启用 HTTPS 后设 `COOKIE_SECURE=True`。
+**建议方案**:上线前改为明确域名,启用 HTTPS 后设 `COOKIE_SECURE=True`。
+
+**状态**:✅ 部分解决(2026-05-22)— `CORS_ORIGINS` 改为环境变量驱动的白名单(默认 `http://39.98.46.227,http://localhost:5173,http://127.0.0.1:5173`),`COOKIE_SECURE` 也走 env。等 HTTPS 上线后把 `COOKIE_SECURE=True` 切上即可。
 
 ---
 
 ## 已解决 ✅
 
-- ✅ **workflow dag_json 节点名称快照问题** — 改名时已自动同步（2026-05，`_sync_component_name_in_workflows`）
-- ✅ **组件无编辑锁** — 已加 locked_by/locked_at + 30分钟TTL（2026-05）
-- ✅ **DS OOM** — 内存限制从 2g 提升到 4g（2026-05）
-- ✅ **MySQL 中文乱码** — docker-compose 加 utf8mb4 强制配置（2026-05）
+- ✅ **后端生产模式化(P0)** — Dockerfile 切 gunicorn + UvicornWorker(2026-05-22)
+- ✅ **CORS 白名单化(P0)** — `CORS_ORIGINS` 走 env,默认非 `*`,新增 `field_validator` 解析逗号分隔(2026-05-22)
+- ✅ **Cookie 安全开关(P0)** — `COOKIE_SECURE` 走 env(2026-05-22)
+- ✅ **REDIS_URL / DS_ADMIN_PASSWORD compose 注入(P0)** — 不再依赖 config.py 默认值(2026-05-22)
+- ✅ **前端 type-check 脚本(P0)** — 新增 `type-check` / `build:strict`,留作 CI 门禁(2026-05-22)
+- ✅ **前端 Playwright 冒烟(P0)** — `e2e/login.spec.ts` 5 条主路径(2026-05-22)
+- ✅ **workflow dag_json 节点名称快照问题** — 改名时已自动同步(2026-05,`_sync_component_name_in_workflows`)
+- ✅ **组件无编辑锁** — 已加 locked_by/locked_at + 30分钟TTL(2026-05)
+- ✅ **DS OOM** — 内存限制从 2g 提升到 4g(2026-05)
+- ✅ **MySQL 中文乱码** — docker-compose 加 utf8mb4 强制配置(2026-05)
