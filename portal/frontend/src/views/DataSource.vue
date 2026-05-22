@@ -51,14 +51,7 @@
           <a-col :span="12">
             <a-form-item field="type" label="数据库类型" :rules="[{ required: true }]">
               <a-select v-model="form.type" placeholder="选择类型" @change="onTypeChange">
-                <a-option value="mysql">MySQL</a-option>
-                <a-option value="postgresql">PostgreSQL</a-option>
-                <a-option value="sqlserver">SQLServer</a-option>
-                <a-option value="oracle">Oracle</a-option>
-                <a-option value="clickhouse">ClickHouse</a-option>
-                <a-option value="mongodb">MongoDB</a-option>
-                <a-option value="redis">Redis</a-option>
-                <a-option value="hive">Hive</a-option>
+                <a-option v-for="t in dsTypes" :key="t.type" :value="t.type">{{ t.label }}</a-option>
               </a-select>
             </a-form-item>
           </a-col>
@@ -95,11 +88,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { IconPlus } from '@arco-design/web-vue/es/icon'
 import PageHeader from '../components/PageHeader.vue'
-import { getDatasources, createDatasource, updateDatasource, deleteDatasource, testDatasource } from '../api'
+import { getDatasources, createDatasource, updateDatasource, deleteDatasource, testDatasource, getDatasourceTypes } from '../api'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -114,20 +107,18 @@ const form = reactive({
   database_name: '', username: '', password: '', description: '',
 })
 
-const typeColors: Record<string, string> = {
-  mysql: 'blue', postgresql: 'cyan', sqlserver: 'purple',
-  oracle: 'red', clickhouse: 'orange', mongodb: 'green',
-  redis: 'orangered', hive: 'gold',
-}
-
-const defaultPorts: Record<string, number> = {
-  mysql: 3306, postgresql: 5432, sqlserver: 1433,
-  oracle: 1521, clickhouse: 8123, mongodb: 27017,
-  redis: 6379, hive: 10000,
-}
+// 数据源类型从后端 /datasources/types 动态加载，新增类型只需在后端 DS_TYPE_META 追加一行
+interface DsTypeMeta { type: string; label: string; default_port: number; color: string }
+const dsTypes = ref<DsTypeMeta[]>([])
+const typeColors = computed<Record<string, string>>(
+  () => Object.fromEntries(dsTypes.value.map(t => [t.type, t.color]))
+)
+const defaultPorts = computed<Record<string, number>>(
+  () => Object.fromEntries(dsTypes.value.map(t => [t.type, t.default_port]))
+)
 
 function onTypeChange(type: any) {
-  form.port = defaultPorts[String(type)] || 3306
+  form.port = defaultPorts.value[String(type)] || 3306
 }
 
 const columns = [
@@ -140,7 +131,16 @@ const columns = [
   { title: '操作', slotName: 'optional', width: 200, fixed: 'right' as const },
 ]
 
-onMounted(() => loadData())
+onMounted(async () => {
+  try {
+    const res = await getDatasourceTypes()
+    dsTypes.value = (res.data || []) as DsTypeMeta[]
+  } catch {
+    // 接口失败时给一个最小兜底，避免下拉为空
+    dsTypes.value = [{ type: 'mysql', label: 'MySQL', default_port: 3306, color: 'blue' }]
+  }
+  loadData()
+})
 
 async function loadData() {
   loading.value = true

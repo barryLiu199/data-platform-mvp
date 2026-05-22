@@ -20,6 +20,55 @@ def run_all_migrations():
     _migrate_workflow_params()
     _migrate_table_lineage()
     _migrate_lock_columns()
+    _migrate_backfill_tables()
+
+
+def _migrate_backfill_tables():
+    """Backfill 任务与实例表（幂等）"""
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT TABLE_NAME FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('backfill_task','backfill_instance')"
+        )).fetchall()
+        existing = {r[0] for r in rows}
+        if 'backfill_task' not in existing:
+            conn.execute(text("""
+                CREATE TABLE backfill_task (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    workflow_id BIGINT NOT NULL,
+                    workflow_name VARCHAR(255),
+                    date_from DATE NOT NULL,
+                    date_to DATE NOT NULL,
+                    parallel INT NOT NULL DEFAULT 1 COMMENT '最大并行实例数 1-20',
+                    has_dep TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=串行(有日依赖) 0=并行',
+                    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    total_count INT NOT NULL DEFAULT 0,
+                    success_count INT NOT NULL DEFAULT 0,
+                    failed_count INT NOT NULL DEFAULT 0,
+                    created_by BIGINT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    finished_at DATETIME NULL,
+                    INDEX idx_backfill_workflow (workflow_id),
+                    INDEX idx_backfill_created (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
+        if 'backfill_instance' not in existing:
+            conn.execute(text("""
+                CREATE TABLE backfill_instance (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    backfill_id BIGINT NOT NULL,
+                    run_date DATE NOT NULL,
+                    seq INT NOT NULL COMMENT '执行顺序，从 1 开始',
+                    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    started_at DATETIME NULL,
+                    finished_at DATETIME NULL,
+                    error_msg TEXT NULL,
+                    INDEX idx_backfill_id (backfill_id),
+                    INDEX idx_backfill_status (backfill_id, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
 
 
 def _migrate_table_lineage():

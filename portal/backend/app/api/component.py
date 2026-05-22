@@ -18,7 +18,7 @@ from app.models.user import SysUser
 router = APIRouter(prefix="/components", tags=["组件"])
 
 # ===== 类型与状态常量 =====
-VALID_TYPES = {"sql", "python", "shell", "datax"}
+VALID_TYPES = {"sql", "python", "shell", "datax", "procedure"}
 
 # 状态定义
 STATUS_DRAFT = "draft"
@@ -541,15 +541,35 @@ def unlock_component(
 def run_component(
     comp_id: int,
     datasource_id: Optional[int] = Query(None),
+    run_date: Optional[str] = Query(None, description="运行日期 YYYY-MM-DD，缺省 today()"),
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("component:write")),
 ):
-    """运行组件：SQL 直连执行返回结果，Python/Shell 用 subprocess 执行返回日志"""
+    """运行组件：SQL 直连执行返回结果，Python/Shell 用 subprocess 执行返回日志，procedure 调用存储过程"""
+    from datetime import date as _date
+    from app.core.param_resolver import resolve
+
     c = _get_or_404(db, comp_id)
     cfg = c.config_json or {}
+
+    # 解析 run_date
+    rd = _date.today()
+    if run_date:
+        try:
+            rd = _date.fromisoformat(run_date)
+        except ValueError:
+            raise HTTPException(400, "run_date 必须为 YYYY-MM-DD")
+
+    # procedure 分支：不读 code，直接走数据源 + 过程名 + 参数
+    if c.type == "procedure":
+        return _run_procedure(db, cfg, rd)
+
     code = (cfg.get("sql") or cfg.get("script") or cfg.get("code") or "").strip()
     if not code:
         raise HTTPException(400, "组件代码为空")
+
+    # 在执行前替换 ${bizdate} 等占位符
+    code = resolve(code, rd)
 
     start = time.time()
 
@@ -588,6 +608,81 @@ def run_component(
 
     else:
         raise HTTPException(400, f"不支持直接运行的组件类型: {c.type}")
+
+
+def _run_procedure(db: Session, cfg: dict, run_date):
+    """调用数据库存储过程。
+
+    config_json:
+      {
+        "datasource_id": 1,
+        "procedure_name": "proc_fby_daily",
+        "params": ["${bizdate}", "..."],
+        "timeout": 3600
+      }
+    """
+    from app.models.datasource import DataSource
+    from app.core.param_resolver import resolve
+    import sqlalchemy as sa
+
+    ds_id = cfg.get("datasource_id")
+    if not ds_id:
+        raise HTTPException(400, "存储过程组件必须配置 datasource_id")
+    ds = db.query(DataSource).filter(DataSource.id == ds_id).first()
+    if not ds:
+        raise HTTPException(404, "数据源不存在")
+    proc_name = (cfg.get("procedure_name") or "").strip()
+    if not proc_name:
+        raise HTTPException(400, "存储过程名不能为空")
+
+    raw_params = cfg.get("params", []) or []
+    resolved_params = [resolve(str(p), run_date) for p in raw_params]
+
+    # 按方言拼调用语句（参数走 SQLAlchemy bindparam，避免 SQL 注入）
+    t = (ds.type or "").lower()
+    placeholders = ", ".join([f":p{i}" for i in range(len(resolved_params))])
+    if t == "sqlserver":
+        call_sql = f"EXEC {proc_name} {placeholders}" if resolved_params else f"EXEC {proc_name}"
+    elif t == "oracle":
+        call_sql = (
+            f"BEGIN {proc_name}({placeholders}); END;"
+            if resolved_params else f"BEGIN {proc_name}; END;"
+        )
+    else:  # mysql / postgresql / 默认
+        call_sql = f"CALL {proc_name}({placeholders})" if resolved_params else f"CALL {proc_name}()"
+
+    bind = {f"p{i}": v for i, v in enumerate(resolved_params)}
+
+    from app.core.db_adapter import sqlalchemy_url
+    url = sqlalchemy_url(ds)
+    connect_args = {"connect_timeout": 10} if t in ("mysql", "postgresql") else {}
+    engine = sa.create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+
+    start = time.time()
+    try:
+        with engine.connect() as conn:
+            res = conn.execute(sa.text(call_sql), bind)
+            try:
+                conn.commit()
+            except Exception:
+                pass
+            duration_ms = int((time.time() - start) * 1000)
+            display_args = ", ".join(repr(v) for v in resolved_params)
+            return {
+                "type": "log",
+                "ok": True,
+                "log": f"执行成功: {proc_name}({display_args})  affected={getattr(res, 'rowcount', -1)}",
+                "duration_ms": duration_ms,
+            }
+    except Exception as e:
+        return {
+            "type": "log",
+            "ok": False,
+            "log": str(e),
+            "duration_ms": int((time.time() - start) * 1000),
+        }
+    finally:
+        engine.dispose()
 
 
 # ===== 状态机操作 =====

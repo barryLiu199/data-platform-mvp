@@ -208,6 +208,17 @@ docker compose up -d --build
 - CORS 配置为 `["*"]`，COOKIE_SECURE=False（HTTP 环境）
 - REDIS_URL 和 DS_ADMIN_PASSWORD 未通过 docker-compose 注入，使用 config.py 默认值
 
+## 知识库索引
+
+| 文档 | 内容 | 何时查阅 |
+|------|------|---------|
+| `docs/PITFALLS.md` | 踩坑记录：现象 → 根因 → 正确做法 | 遇到 bug / 修复前先看有没有先例 |
+| `docs/ARCHITECTURE.md` | 架构债务清单：已知设计问题 + 风险 + 建议方案 | 修改涉及并发/锁/超时/部署时先查 |
+
+> **规则**：每次 git push 前，如果修复了 bug 必须追加到 `docs/PITFALLS.md`；发现架构问题追加到 `docs/ARCHITECTURE.md`。
+
+---
+
 ## Agent skills
 
 ### Issue tracker

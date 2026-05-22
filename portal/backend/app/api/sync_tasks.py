@@ -371,9 +371,14 @@ def test_connection(
     return {"ok": ok, "message": msg}
 
 
+class RunSyncTaskRequest(BaseModel):
+    run_date: Optional[str] = None  # YYYY-MM-DD；缺省 today()
+
+
 @router.post("/{task_id}/run")
 def run_sync_task(
     task_id: int,
+    body: Optional[RunSyncTaskRequest] = None,
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("sync:write")),
 ):
@@ -382,6 +387,8 @@ def run_sync_task(
     import time
     import subprocess
     import tempfile
+    from datetime import date as _date
+    from app.core.param_resolver import resolve
 
     task = db.query(SyncTask).filter(SyncTask.id == task_id).first()
     if not task:
@@ -392,11 +399,28 @@ def run_sync_task(
     if not src or not dst:
         raise HTTPException(status_code=400, detail="任务关联的数据源已被删除")
 
+    # 解析 run_date 并替换 where_clause 中的 ${bizdate} 等占位符
+    rd = _date.today()
+    if body and body.run_date:
+        try:
+            rd = _date.fromisoformat(body.run_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="run_date 必须为 YYYY-MM-DD")
+
+    original_where = task.where_clause
+    if original_where:
+        task.where_clause = resolve(original_where, rd)
+
     from app.core.datax_builder import build_for_sync_task
     try:
         datax_job = build_for_sync_task(task, src, dst, mask_password=False)
     except ValueError as e:
+        # 还原 where_clause，避免污染 ORM 对象
+        task.where_clause = original_where
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        # 还原 where_clause（仅用于 builder，不持久化）
+        task.where_clause = original_where
 
     # 写入临时文件执行
     with tempfile.NamedTemporaryFile(

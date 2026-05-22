@@ -582,6 +582,7 @@ async def offline_workflow(
 
 class RunWorkflowRequest(BaseModel):
     params: Optional[Dict[str, str]] = None
+    run_date: Optional[str] = None  # YYYY-MM-DD；不传则后端按 today() 注入
 
 
 @router.post("/{wf_id}/run")
@@ -601,11 +602,21 @@ async def run_workflow(
     if not w.ds_process_code:
         raise HTTPException(status_code=400, detail="工作流未同步到 DS,请先发布")
     ds = get_ds_client()
+    # 注入 bizdate 等系统日期参数到 startParams，DS 任务节点的 SQL/Shell 可通过 ${bizdate} 引用
+    from datetime import date as _date
+    from app.core.param_resolver import SYSTEM_PARAMS
+    rd = _date.today()
+    if body.run_date:
+        try:
+            rd = _date.fromisoformat(body.run_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="run_date 必须为 YYYY-MM-DD")
+    merged: Dict[str, str] = {k: f(rd) for k, f in SYSTEM_PARAMS.items()}
+    if body.params:
+        merged.update(body.params)
     # 构造 startParams: "key1=val1,key2=val2"
     import json as _json
-    start_params = ""
-    if body.params:
-        start_params = _json.dumps(body.params, ensure_ascii=False)
+    start_params = _json.dumps(merged, ensure_ascii=False)
     result = await ds.start_process_instance(w.ds_process_code, start_params=start_params)
     if result is None:
         raise HTTPException(status_code=502, detail="DS 触发运行失败")

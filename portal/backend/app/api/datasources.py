@@ -13,6 +13,23 @@ from app.models.user import SysUser
 router = APIRouter(prefix="/datasources", tags=["数据源"])
 
 
+# 支持的数据源类型元数据 — 前端从此处动态加载，新增类型在 db_adapters 注册后追加一行即可
+DS_TYPE_META = [
+    {"type": "mysql",      "label": "MySQL",       "default_port": 3306,  "color": "blue"},
+    {"type": "sqlserver",  "label": "SQL Server",  "default_port": 1433,  "color": "purple"},
+    {"type": "postgresql", "label": "PostgreSQL",  "default_port": 5432,  "color": "cyan"},
+    {"type": "oracle",     "label": "Oracle",      "default_port": 1521,  "color": "red"},
+    {"type": "clickhouse", "label": "ClickHouse",  "default_port": 8123,  "color": "orange"},
+    {"type": "mongodb",    "label": "MongoDB",     "default_port": 27017, "color": "green"},
+]
+
+
+@router.get("/types")
+def list_datasource_types():
+    """返回支持的数据源类型列表（无需认证，前端表单初始化用）"""
+    return DS_TYPE_META
+
+
 class DataSourceCreate(BaseModel):
     name: str
     type: str  # mysql / postgresql / sqlserver / oracle / clickhouse / mongodb / redis / hive

@@ -23,9 +23,10 @@ export interface TreeNode {
 // ── 所有页面共用的类型分组定义 ────────────────────────────────────────────
 
 export const TYPE_GROUPS: TypeGroup[] = [
-  { type: 'sql',    label: 'SQL 查询',    color: '#D97706', gradient: 'linear-gradient(135deg, #D97706 0%, #F59E0B 100%)', abbr: 'SQ'  },
-  { type: 'python', label: 'Python 脚本', color: '#3776AB', gradient: 'linear-gradient(135deg, #3776AB 0%, #5B9FD4 100%)', abbr: 'PY'  },
-  { type: 'shell',  label: 'Shell 脚本',  color: '#4EAA25', gradient: 'linear-gradient(135deg, #4EAA25 0%, #6DC940 100%)', abbr: 'SH'  },
+  { type: 'sql',       label: 'SQL 查询',    color: '#D97706', gradient: 'linear-gradient(135deg, #D97706 0%, #F59E0B 100%)', abbr: 'SQ'  },
+  { type: 'python',    label: 'Python 脚本', color: '#3776AB', gradient: 'linear-gradient(135deg, #3776AB 0%, #5B9FD4 100%)', abbr: 'PY'  },
+  { type: 'shell',     label: 'Shell 脚本',  color: '#4EAA25', gradient: 'linear-gradient(135deg, #4EAA25 0%, #6DC940 100%)', abbr: 'SH'  },
+  { type: 'procedure', label: '存储过程',    color: '#0EA5E9', gradient: 'linear-gradient(135deg, #0EA5E9 0%, #38BDF8 100%)', abbr: 'PR'  },
 ]
 
 export const TYPE_GROUPS_WITH_DATAX: TypeGroup[] = [

@@ -48,6 +48,14 @@ export const createDatasource = (data: any) => api.post('/datasources', data)
 export const updateDatasource = (id: number, data: any) => api.put(`/datasources/${id}`, data)
 export const deleteDatasource = (id: number) => api.delete(`/datasources/${id}`)
 export const testDatasource = (id: number) => api.post(`/datasources/${id}/test`)
+export const getDatasourceTypes = () => api.get('/datasources/types')
+
+// Backfill (补数据)
+export const createBackfill = (data: any) => api.post('/backfill', data)
+export const listBackfill = (params?: any) => api.get('/backfill', { params })
+export const getBackfill = (id: number) => api.get(`/backfill/${id}`)
+export const stopBackfill = (id: number) => api.post(`/backfill/${id}/stop`)
+export const retryBackfillInstance = (id: number) => api.post(`/backfill/instances/${id}/retry`)
 
 // Sync Tasks
 export const getSyncTasks = (params?: any) => api.get('/sync-tasks', { params })

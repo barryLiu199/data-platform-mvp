@@ -212,7 +212,59 @@
 
           <!-- 编辑器 -->
           <div class="editor-area">
+            <!-- 存储过程类型：渲染配置表单代替代码编辑器 -->
+            <div v-if="activeTab.language === 'procedure'" class="proc-form">
+              <a-form :model="activeTab.procedure" auto-label-width layout="vertical">
+                <a-form-item label="数据源">
+                  <a-select
+                    v-model="activeTab.datasourceId"
+                    placeholder="选择执行存储过程的数据库"
+                    @change="markDirty"
+                  >
+                    <a-option v-for="ds in datasources" :key="ds.id" :value="ds.id">
+                      {{ ds.name }} ({{ ds.type }})
+                    </a-option>
+                  </a-select>
+                </a-form-item>
+                <a-form-item label="存储过程名">
+                  <a-input
+                    v-model="activeTab.procedure!.procedure_name"
+                    placeholder="如 proc_fby_daily"
+                    @input="markDirty"
+                  />
+                </a-form-item>
+                <a-form-item label="参数列表">
+                  <div style="width:100%">
+                    <div
+                      v-for="(_, idx) in activeTab.procedure!.params"
+                      :key="idx"
+                      style="display:flex;gap:8px;margin-bottom:6px"
+                    >
+                      <a-input
+                        v-model="activeTab.procedure!.params[idx]"
+                        :placeholder="`参数 ${idx + 1} (支持 ${'${'}bizdate})`"
+                        @input="markDirty"
+                      />
+                      <a-button type="text" status="danger" size="small" @click="removeProcParam(idx)">删除</a-button>
+                    </div>
+                    <a-button size="small" @click="addProcParam">＋ 增加参数</a-button>
+                  </div>
+                </a-form-item>
+                <a-form-item label="超时(秒)">
+                  <a-input-number
+                    v-model="activeTab.procedure!.timeout"
+                    :min="1"
+                    :max="86400"
+                    @change="markDirty"
+                  />
+                </a-form-item>
+                <div style="color:var(--color-text-3);font-size:12px">
+                  参数中可使用 <code>${'${'}bizdate}</code>、<code>${'${'}bizdatecn}</code> 等占位符，运行时按 run_date 替换。
+                </div>
+              </a-form>
+            </div>
             <CodeEditor
+              v-else
               :key="activeKey"
               :model-value="activeTab ? activeTab.code : ''"
               :language="activeTab ? activeTab.language : 'sql'"
@@ -545,6 +597,21 @@ function closeTab(key: string) {
   const tab = tabs.value.find(t => t.key === key)
   if (tab) releaseLock(tab)
   _closeTab(key); result.value = null
+}
+
+// ---- 存储过程组件辅助 ----
+function markDirty() {
+  if (activeTab.value) activeTab.value.dirty = true
+}
+function addProcParam() {
+  if (!activeTab.value?.procedure) return
+  activeTab.value.procedure.params.push('')
+  activeTab.value.dirty = true
+}
+function removeProcParam(idx: number) {
+  if (!activeTab.value?.procedure) return
+  activeTab.value.procedure.params.splice(idx, 1)
+  activeTab.value.dirty = true
 }
 
 // ---- 编辑锁管理 ----
@@ -1028,10 +1095,20 @@ async function confirmSave() {
 async function doSave(tab: Tab) {
   saving.value = true
   try {
-    const langKey = tab.language === 'sql' ? 'sql' : 'script'
-    const config_json: any = { [langKey]: tab.code }
-    if (tab.datasourceId != null) config_json.datasource_id = tab.datasourceId
-    if (tab.localParams?.length) config_json.localParams = tab.localParams
+    let config_json: any
+    if (tab.language === 'procedure') {
+      config_json = {
+        datasource_id: tab.datasourceId,
+        procedure_name: tab.procedure?.procedure_name || '',
+        params: tab.procedure?.params || [],
+        timeout: tab.procedure?.timeout ?? 3600,
+      }
+    } else {
+      const langKey = tab.language === 'sql' ? 'sql' : 'script'
+      config_json = { [langKey]: tab.code }
+      if (tab.datasourceId != null) config_json.datasource_id = tab.datasourceId
+      if (tab.localParams?.length) config_json.localParams = tab.localParams
+    }
 
     const payload: any = {
       name: tab.name,

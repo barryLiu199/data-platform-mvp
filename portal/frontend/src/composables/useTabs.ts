@@ -1,6 +1,6 @@
 import { ref, computed, type Ref } from 'vue'
 
-export type Language = 'sql' | 'python' | 'shell' | 'datax'
+export type Language = 'sql' | 'python' | 'shell' | 'datax' | 'procedure'
 
 export interface Tab {
   key: string
@@ -12,6 +12,12 @@ export interface Tab {
   datasourceId?: number
   syncTaskId?: number | null
   localParams?: { prop: string; direct: string; type: string; value: string }[]
+  /** procedure 类型专用配置 */
+  procedure?: {
+    procedure_name: string
+    params: string[]
+    timeout: number
+  }
   dirty: boolean
 }
 
@@ -51,6 +57,29 @@ export function useTabs(
       switchTab(key)
       return
     }
+    if (c.type === 'procedure') {
+      const existing = tabs.value.find(t => t.componentId === c.id)
+      if (existing) { switchTab(existing.key); return }
+      const key = genKey()
+      const cfg = c.config_json || {}
+      tabs.value.push({
+        key,
+        name: c.name,
+        code: '',
+        language: 'procedure',
+        componentId: c.id,
+        folderId: c.folder_id ?? null,
+        datasourceId: cfg.datasource_id,
+        procedure: {
+          procedure_name: cfg.procedure_name || '',
+          params: Array.isArray(cfg.params) ? [...cfg.params] : [],
+          timeout: typeof cfg.timeout === 'number' ? cfg.timeout : 3600,
+        },
+        dirty: false,
+      })
+      switchTab(key)
+      return
+    }
     const existing = tabs.value.find(t => t.componentId === c.id)
     if (existing) { switchTab(existing.key); return }
     const key = genKey()
@@ -82,8 +111,22 @@ export function useTabs(
       switchTab(key)
       return
     }
+    if (lang === 'procedure') {
+      const key = genKey()
+      tabs.value.push({
+        key,
+        name: 'Untitled 存储过程',
+        code: '',
+        language: 'procedure',
+        folderId: folderId ?? null,
+        procedure: { procedure_name: '', params: [], timeout: 3600 },
+        dirty: false,
+      })
+      switchTab(key)
+      return
+    }
     const key = genKey()
-    const names: Record<string, string> = { sql: 'Untitled SQL', python: 'Untitled Python', shell: 'Untitled Shell' }
+    const names: Record<string, string> = { sql: 'Untitled SQL', python: 'Untitled Python', shell: 'Untitled Shell', procedure: 'Untitled 存储过程' }
     tabs.value.push({ key, name: names[lang] ?? 'Untitled', code: '', language: lang, folderId: folderId ?? null, dirty: false })
     switchTab(key)
   }

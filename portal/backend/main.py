@@ -39,13 +39,13 @@ app.add_middleware(
 from app.api import (
     auth, datasources, sync_tasks, dashboard, ds_proxy,
     notifications, component, workflow, system, metadata, metadata_lineage,
-    project, alert_rules, word_roots, admin, transfer,
+    project, alert_rules, word_roots, admin, transfer, backfill,
 )
 
 for router_module in [
     auth, datasources, sync_tasks, dashboard, ds_proxy,
     notifications, component, workflow, system, metadata, metadata_lineage,
-    project, alert_rules, word_roots, admin, transfer,
+    project, alert_rules, word_roots, admin, transfer, backfill,
 ]:
     app.include_router(router_module.router, prefix="/api")
 
