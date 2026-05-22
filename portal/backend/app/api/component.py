@@ -401,6 +401,8 @@ def update_component(
             detail=f"组件当前状态「{c.status}」不允许编辑",
         )
     updates = req.model_dump(exclude_unset=True)
+    old_name = c.name
+    new_name = updates.get("name")
     # Handle convenience fields
     code = updates.pop('code', None)
     ds_id = updates.pop('datasource_id', None)
@@ -419,7 +421,42 @@ def update_component(
         c.version = (c.version or 1) + 1
     db.commit()
     db.refresh(c)
+
+    # 改名时同步所有工作流 dag_json / steps_json 中的节点名称
+    if new_name and new_name != old_name:
+        _sync_component_name_in_workflows(db, comp_id, new_name)
+
     return _serialize(c)
+
+
+def _sync_component_name_in_workflows(db: Session, comp_id: int, new_name: str):
+    """把所有工作流中引用该组件的节点名称同步更新"""
+    from app.models.workflow import Workflow
+    import copy
+
+    workflows = db.query(Workflow).all()
+    for wf in workflows:
+        changed = False
+        # dag_json: {nodes: [{component_id, name, ...}, ...], edges: [...]}
+        if wf.dag_json:
+            dag = copy.deepcopy(wf.dag_json)
+            for node in dag.get("nodes", []):
+                if node.get("component_id") == comp_id:
+                    node["name"] = new_name
+                    changed = True
+            if changed:
+                wf.dag_json = dag
+        # steps_json (legacy): [{component_id, name, ...}, ...]
+        if wf.steps_json:
+            steps = copy.deepcopy(wf.steps_json)
+            for step in steps:
+                if step.get("component_id") == comp_id:
+                    step["name"] = new_name
+                    changed = True
+            if changed:
+                wf.steps_json = steps
+    if any(True for wf in workflows):
+        db.commit()
 
 
 @router.delete("/{comp_id}")

@@ -37,8 +37,8 @@
         <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建文件夹">
           <span class="grp-action" @click.stop="startNewFolder(group.type, null)">⊞</span>
         </a-tooltip>
-        <a-tooltip v-if="userStore.hasPermission('component:write')" content="新建组件">
-          <span class="grp-action" @click.stop="newBlankTab(group.type as Language)">＋</span>
+        <a-tooltip v-if="userStore.hasPermission('component:write')" content="请在文件夹内新建组件">
+          <span class="grp-action" style="opacity:0.4;cursor:not-allowed">＋</span>
         </a-tooltip>
       </template>
 
@@ -77,7 +77,7 @@
 
       <!-- 组件名称（支持重命名） -->
       <template #comp-name="{ node }">
-        <span v-if="renamingCompId !== node.id" class="ftp-name">{{ node.name }}</span>
+        <span v-if="renamingCompId !== node.id" class="ftp-name" @dblclick.stop="startRenameComponent(node)">{{ node.name }}</span>
         <a-input
           v-else
           v-model="renameCompValue"
@@ -360,6 +360,15 @@
     <a-modal v-model:visible="saveModalVisible" title="保存组件" @ok="confirmSave" :ok-loading="saving" width="380px">
       <a-form-item label="组件名称">
         <a-input v-model="saveName" placeholder="如：dim_user_query" allow-clear />
+      </a-form-item>
+      <a-form-item label="所属文件夹">
+        <a-select v-model="saveFolderId" placeholder="请选择文件夹（必填）" allow-clear style="width:100%">
+          <a-option
+            v-for="f in folders.filter(f => f.type === pendingSaveTab?.language || f.type === (pendingSaveTab?.language === 'datax' ? 'datax' : pendingSaveTab?.language))"
+            :key="f.id"
+            :value="f.id"
+          >{{ f.name }}</a-option>
+        </a-select>
       </a-form-item>
     </a-modal>
 
@@ -687,6 +696,7 @@ const paramModalSql = ref('')
 
 const saveModalVisible = ref(false)
 const saveName = ref('')
+const saveFolderId = ref<number | null>(null)
 const pendingSaveTab = ref<Tab | null>(null)
 
 const newFolderVisible = ref(false)
@@ -996,6 +1006,7 @@ async function saveTab() {
     }
     pendingSaveTab.value = tab
     saveName.value = tab.name.startsWith('Untitled') ? '' : tab.name
+    saveFolderId.value = tab.folderId ?? null
     saveModalVisible.value = true
     return
   }
@@ -1004,9 +1015,11 @@ async function saveTab() {
 
 async function confirmSave() {
   if (!saveName.value.trim()) { Message.warning('请输入组件名称'); return }
+  if (saveFolderId.value == null) { Message.warning('请选择所属文件夹'); return }
   const tab = pendingSaveTab.value
   if (!tab) return
   tab.name = saveName.value.trim()
+  tab.folderId = saveFolderId.value
   await doSave(tab)
   saveModalVisible.value = false
   pendingSaveTab.value = null
