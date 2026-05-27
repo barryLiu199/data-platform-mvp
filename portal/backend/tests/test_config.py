@@ -24,10 +24,10 @@ def test_cors_origins_parses_comma_separated_env(monkeypatch):
     """环境变量 CORS_ORIGINS 用逗号分隔"""
     monkeypatch.setenv(
         "CORS_ORIGINS",
-        "http://39.98.46.227,https://example.com",
+        "http://47.92.236.44,https://example.com",
     )
     settings = _reload_settings()
-    assert "http://39.98.46.227" in settings.CORS_ORIGINS
+    assert "http://47.92.236.44" in settings.CORS_ORIGINS
     assert "https://example.com" in settings.CORS_ORIGINS
     assert len(settings.CORS_ORIGINS) == 2
 

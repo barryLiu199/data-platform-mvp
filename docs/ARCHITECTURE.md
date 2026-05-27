@@ -112,7 +112,7 @@
 
 **建议方案**:上线前改为明确域名,启用 HTTPS 后设 `COOKIE_SECURE=True`。
 
-**状态**:✅ 部分解决(2026-05-22)— `CORS_ORIGINS` 改为环境变量驱动的白名单(默认 `http://39.98.46.227,http://localhost:5173,http://127.0.0.1:5173`),`COOKIE_SECURE` 也走 env。等 HTTPS 上线后把 `COOKIE_SECURE=True` 切上即可。
+**状态**:✅ 部分解决(2026-05-22)— `CORS_ORIGINS` 改为环境变量驱动的白名单(默认 `http://47.92.236.44,http://localhost:5173,http://127.0.0.1:5173`),`COOKIE_SECURE` 也走 env。等 HTTPS 上线后把 `COOKIE_SECURE=True` 切上即可。
 
 ---
 

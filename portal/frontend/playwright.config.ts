@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 /**
  * Playwright 冒烟测试配置
- * 默认指向 BASE_URL (.env 或 CI 中注入),本地缺省走线上 http://39.98.46.227
+ * 默认指向 BASE_URL (.env 或 CI 中注入),本地缺省走线上 http://47.92.236.44
  */
 export default defineConfig({
   testDir: './e2e',
@@ -13,7 +13,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list']],
   use: {
-    baseURL: process.env.BASE_URL || 'http://39.98.46.227',
+    baseURL: process.env.BASE_URL || 'http://47.92.236.44',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

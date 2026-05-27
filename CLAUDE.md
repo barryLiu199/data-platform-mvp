@@ -7,7 +7,7 @@
 - **定位**：金融行业离线数据中台统一门户
 - **技术栈**：Vue3 + Arco Design（前端）| FastAPI + SQLAlchemy（后端）| DolphinScheduler 3.2.2（调度）| MySQL 8.0 + Redis 7
 - **部署**：Docker Compose 单机，Nginx 反向代理，对外仅 :80
-- **服务器**：39.98.46.227（阿里云 Ubuntu 22.04），项目路径 `/root/data-platform-mvp`
+- **服务器**：47.92.236.44（阿里云 Ubuntu 22.04），项目路径 `/root/data-platform-mvp`
 
 ## 目录结构
 
@@ -179,7 +179,7 @@ data-platform-mvp/
 ## 部署流程
 
 ```bash
-# 服务器：root@39.98.46.227，密码 lt720912.
+# 服务器：root@47.92.236.44，密码 lt720912.
 # 项目路径：/root/data-platform-mvp
 
 # 1. 拉代码

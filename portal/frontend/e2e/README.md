@@ -6,7 +6,7 @@
 # 1. 安装 Playwright 浏览器(首次)
 pnpm exec playwright install chromium
 
-# 2. 跑冒烟(默认指向线上 http://39.98.46.227)
+# 2. 跑冒烟(默认指向线上 http://47.92.236.44)
 pnpm test:e2e
 
 # 3. 指向本地后端
