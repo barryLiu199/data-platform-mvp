@@ -393,6 +393,17 @@ class DSClient:
             return None
         return await self.get(f"/projects/{pc}/process-instances/{instance_id}")
 
+    async def stop_process_instance(self, instance_id: int) -> bool:
+        """终止一个正在运行的工作流实例"""
+        pc = await self._discover_project()
+        if not pc:
+            return False
+        data = await self.post(f"/projects/{pc}/executors/execute", data={
+            "processInstanceId": instance_id,
+            "executeType": "STOP",
+        })
+        return data is not None
+
     async def create_or_find_datasource(self, name: str, db_type: str, host: str, port: int,
                                          database: str, username: str, password: str) -> Optional[int]:
         """在 DS 中创建或查找数据源，返回 DS datasource id"""

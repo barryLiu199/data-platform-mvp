@@ -27,6 +27,7 @@ def test_run_all_migrations_calls_all():
         "_migrate_table_lineage",
         "_migrate_lock_columns",
         "_migrate_backfill_tables",
+        "_migrate_backfill_ds_columns",
     ]
 
     mocks = {f: MagicMock() for f in funcs}

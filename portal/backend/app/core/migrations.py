@@ -21,6 +21,7 @@ def run_all_migrations():
     _migrate_table_lineage()
     _migrate_lock_columns()
     _migrate_backfill_tables()
+    _migrate_backfill_ds_columns()
 
 
 def _migrate_backfill_tables():
@@ -379,3 +380,39 @@ def _migrate_lock_columns():
                     f"ALTER TABLE `{table}` ADD COLUMN locked_at DATETIME NULL COMMENT '抢锁时间'"
                 ))
                 conn.commit()
+
+
+def _migrate_backfill_ds_columns():
+    """backfill_task 加 ds_command_type/ds_command_id，backfill_instance 加 ds_instance_id"""
+    with engine.connect() as conn:
+        # backfill_task
+        rows = conn.execute(text(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'backfill_task'"
+        )).fetchall()
+        existing = {r[0] for r in rows}
+        if 'ds_command_type' not in existing:
+            conn.execute(text(
+                "ALTER TABLE backfill_task ADD COLUMN ds_command_type VARCHAR(32) NULL "
+                "COMMENT 'DS 执行类型，如 COMPLEMENT_DATA'"
+            ))
+            conn.commit()
+        if 'ds_command_id' not in existing:
+            conn.execute(text(
+                "ALTER TABLE backfill_task ADD COLUMN ds_command_id BIGINT NULL "
+                "COMMENT 'DS complement 命令 ID'"
+            ))
+            conn.commit()
+
+        # backfill_instance
+        rows = conn.execute(text(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'backfill_instance'"
+        )).fetchall()
+        existing = {r[0] for r in rows}
+        if 'ds_instance_id' not in existing:
+            conn.execute(text(
+                "ALTER TABLE backfill_instance ADD COLUMN ds_instance_id BIGINT NULL "
+                "COMMENT 'DS process instance id'"
+            ))
+            conn.commit()

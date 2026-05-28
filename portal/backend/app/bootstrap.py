@@ -138,7 +138,7 @@ def _ensure_default_project(db: Session):
 
 def bootstrap():
     """
-    Run all startup tasks: DDL, migrations, seed data.
+    Run all startup tasks: DDL, migrations, seed data, reaper.
     Idempotent — safe to call multiple times.
     """
     # 1. Create tables from SQLAlchemy models
@@ -168,3 +168,10 @@ def bootstrap():
         logger.info("Seed data: roles + admin + default project ensured")
     finally:
         db.close()
+
+    # 4. Reaper: 恢复 running 状态的 backfill 任务的状态同步
+    from app.api.backfill import reap_stale_tasks
+    try:
+        reap_stale_tasks()
+    except Exception:
+        logger.exception("Backfill reaper 启动失败")
