@@ -168,3 +168,53 @@ JsonParseException: Unexpected character ('-' (code 45))
 
 ---
 
+## [2026-05] DS 重启 2499 次 — MySQL JDBC 驱动是目录不是文件
+
+**现象**：新服务器部署后 DS 容器反复重启（RestartCount: 2499），日志报 `Cannot load driver class: com.mysql.cj.jdbc.Driver`，`spring.datasource` bean 创建失败。
+
+**根因**：`drivers/mysql-connector-j-8.0.33.jar` 在服务器上是个**空目录**而非 JAR 文件。rsync 时本地该路径不存在（未提交进 git），rsync 把它作为目录创建。Docker volume bind mount 把目录挂到容器内文件路径，导致 `standalone-server/mysql-connector-j-8.0.33.jar` 变成空目录，JVM classpath 找不到驱动类。
+
+**正确做法**：
+1. 删掉目录：`rm -rf /root/data-platform-mvp/drivers/mysql-connector-j-8.0.33.jar`
+2. 下载真实 JAR：`curl -L "https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.0.33/mysql-connector-j-8.0.33.jar" -o drivers/mysql-connector-j-8.0.33.jar`
+3. 重建容器（`restart` 不够，必须 `docker compose up -d --force-recreate dolphinscheduler`）
+
+**永久方案**：把 JAR 文件提交进 git，或在 DS Dockerfile 里 `RUN curl` 下载，不依赖 volume bind mount 传入二进制文件。
+
+**涉及文件**：`docker-compose.yml`（volumes 配置）、`drivers/mysql-connector-j-8.0.33.jar`
+
+---
+
+## [2026-05] DS 启动卡死 — 空数据库需要手动初始化 schema
+
+**现象**：新服务器全新 `dolphinscheduler` 数据库（0 张表）。DS 进程启动后日志停在 `HikariPool-1 - Start completed` 之后，`AlertPluginManager: Plugin Define Table t_ds_plugin_define Not Exist`，进程不崩溃但不继续推进，健康检查 `unhealthy`，HTTP 端口始终不响应。
+
+**根因**：DS standalone 依靠 Flyway/Spring SQL init 在启动时自动建表，但在全新空库情况下，Spring context 某个 bean（`AlertPluginManager`）在 Flyway 运行前就尝试查询 `t_ds_plugin_define` 表，抛出异常并阻塞了整个 Spring context 初始化，导致 Flyway 永远没机会执行。进程活着但 Spring 已死锁。
+
+**正确做法**：新服务器首次部署前，手动初始化 DS 数据库：
+```bash
+docker exec -i dmp-mysql mysql -uroot -pDpMvp2026Secure dolphinscheduler \
+  < <(docker exec dmp-ds cat /opt/dolphinscheduler/conf/sql/dolphinscheduler_mysql.sql)
+# 确认 67 张表建好后再启动/重启 DS
+```
+
+**规则**：换服务器重建后，必须先手动跑一次 DS schema init，再 `docker compose up -d dolphinscheduler`。
+
+**涉及文件**：`/opt/dolphinscheduler/conf/sql/dolphinscheduler_mysql.sql`（容器内）
+
+---
+
+## [2026-05] DS JVM heap 与容器 mem_limit 冲突导致卡死
+
+**现象**：DS 镜像默认 JVM 参数 `-Xms4g -Xmx4g -Xmn2g`，在 `mem_limit: 4g` 的容器中运行，JVM 申请 4GB heap 加上 OS/metaspace 开销，总内存超过容器限制，进程不报 OOM 但完全卡死（CPU 4-5%，无新日志，不崩溃不重启）。
+
+**正确做法**：在 DS Dockerfile 中覆盖 `/opt/dolphinscheduler/bin/jvm_args_env.sh`，把 heap 改为 `-Xms1g -Xmx2g -Xmn512m`，容器 mem_limit 改为 `3g`：
+```
+mem_limit: 3g     # docker-compose.yml
+-Xms1g -Xmx2g    # dolphinscheduler/Dockerfile 写入 jvm_args_env.sh
+```
+
+**涉及文件**：`dolphinscheduler/Dockerfile`、`docker-compose.yml`
+
+---
+

@@ -91,7 +91,7 @@ services:
       timeout: 10s
       retries: 10
       start_period: 120s
-    mem_limit: 4g
+    mem_limit: 3g
     networks:
       - dmp-net
 

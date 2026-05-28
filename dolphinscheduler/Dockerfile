@@ -22,3 +22,8 @@ RUN ln -sf /opt/java/openjdk/bin/java /usr/bin/java \
 
 ENV JAVA_HOME=/opt/java/openjdk
 ENV DATAX_HOME=/opt/datax
+
+# 降低 JVM heap：默认 -Xms4g -Xmx4g 在 mem_limit:4g 容器内会耗尽 OS 内存导致卡死
+# 2g heap + 2g OS/metaspace 留量，实测稳定
+RUN printf -- '-Xms1g\n-Xmx2g\n-Xmn512m\n\n-XX:+IgnoreUnrecognizedVMOptions\n-XX:+PrintGCDateStamps\n-XX:+PrintGCDetails\n-Xloggc:gc.log\n\n-XX:+ExitOnOutOfMemoryError\n-XX:+HeapDumpOnOutOfMemoryError\n-XX:HeapDumpPath=dump.hprof\n\n-Duser.timezone=${SPRING_JACKSON_TIME_ZONE}\n' \
+    > /opt/dolphinscheduler/bin/jvm_args_env.sh
