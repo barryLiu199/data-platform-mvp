@@ -333,7 +333,7 @@ watch(detailTab, (v) => {
 async function loadQuality() {
   qualityLoading.value = true
   try {
-    const { data } = await getMetadataQuality(dsId.value!, selectedTable.value)
+    const { data } = await getMetadataQuality(dsId.value!, selectedTable.value!)
     qualityRules.value = data
   } catch {
     qualityRules.value = []
