@@ -218,3 +218,26 @@ mem_limit: 3g     # docker-compose.yml
 
 ---
 
+## [2026-05] 新服务器 DS 无 Project — portal 工作流 API 全返 503
+
+**现象**：DS 健康检查通过后，portal 的 `/api/ds/instances`、工作流发布/运行等所有涉及 DS 的接口仍返回 503。无报错日志，只有 `DS 项目不可用`。
+
+**根因**：DS standalone 镜像首次启动后数据库里没有任何 Project。`DSClient._discover_project()` 调 `GET /projects` 得到空 `totalList`，返回 `None`，所有业务方法静默失败，`_project_code()` 抛 `HTTPException(503)`。
+
+**正确做法**：新服务器 DS 启动健康后，手动创建一个默认项目（只需一次）：
+```bash
+docker exec dmp-ds python3 -c "
+import urllib.request, urllib.parse, json
+base = 'http://localhost:12345/dolphinscheduler'
+data = urllib.parse.urlencode({'userName':'admin','userPassword':'dolphinscheduler123'}).encode()
+sid = json.loads(urllib.request.urlopen(urllib.request.Request(base+'/login',data), timeout=10).read())['data']['sessionId']
+data2 = urllib.parse.urlencode({'projectName':'data-platform-mvp','description':'默认项目'}).encode()
+r = json.loads(urllib.request.urlopen(urllib.request.Request(base+'/projects',data2,{'Cookie':'sessionId='+sid}), timeout=10).read())
+print('code:', r.get('code'), 'project_code:', r.get('data',{}).get('code'))
+"
+```
+
+**涉及文件**：`app/core/ds_client.py` — `_discover_project()`、`ds_proxy.py` — `_project_code()`
+
+---
+
