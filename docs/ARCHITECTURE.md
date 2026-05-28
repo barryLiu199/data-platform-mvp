@@ -28,6 +28,8 @@
 
 **建议方案**：运行前检查 `last_run_status == 'RUNNING'`（需新增此状态），或用 Redis 分布式锁，或改为提交到 DolphinScheduler 队列执行。
 
+**状态**：✅ 已解决(2026-05-28)— `POST /sync-tasks/{id}/run` 已改为统一走 DS 调度：自动 publish-as-workflow（幂等）+ start_process_instance。subprocess 路径已废弃，并发控制由 DS 队列保证。
+
 ---
 
 ### [高] 后端组件/任务运行没有超时保护

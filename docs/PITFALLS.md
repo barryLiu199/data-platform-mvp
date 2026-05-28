@@ -241,3 +241,17 @@ print('code:', r.get('code'), 'project_code:', r.get('data',{}).get('code'))
 
 ---
 
+## [2026-05-28] publish-as-workflow 幂等路径不同步 DS
+
+**现象**：同步任务改了字段映射后，重新点"发布为工作流"，Portal 组件的 config_json 更新了，但 DS 侧还是旧的 DataX 配置。跑出来的数据用的是旧字段映射。
+
+**根因**：`sync_tasks.py` 的 `publish_as_workflow` 幂等路径（已存在组件时）只更新了 `existing_comp.config_json` 就 return，没有重新调 DS 的 `update_process_definition` + `release_process_definition`。
+
+**正确做法**：幂等路径也要通过 `WorkflowPublisher.publish(wf)` 重新同步到 DS。`WorkflowPublisher._save_or_update` 会自动判断是创建还是更新（通过 `wf.ds_process_code` 是否存在）。
+
+**同时修复的问题**：
+- 首次创建路径引用了不存在的 `_sync_to_ds`，改为使用 `WorkflowPublisher`
+- `POST /sync-tasks/{id}/run` 从 subprocess 直接执行改为走 DS 调度
+
+**涉及文件**：`portal/backend/app/api/sync_tasks.py`、`portal/frontend/src/components/SyncTaskCanvas.vue`
+

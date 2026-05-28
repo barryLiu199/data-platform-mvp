@@ -31,6 +31,9 @@ class SchedulerClientProtocol(Protocol):
     async def schedule_offline(self, schedule_id: int) -> bool: ...
     async def delete_schedule(self, schedule_id: int) -> bool: ...
     async def start_process_instance(self, pd_code: int, **kw) -> Optional[dict]: ...
+    async def complement_data(self, pd_code: int, start_date: str, end_date: str, **kw) -> Optional[dict]: ...
+    async def query_process_instances(self, pd_code: int, page_no: int = 1, page_size: int = 20, **kw) -> Optional[dict]: ...
+    async def query_process_instance(self, instance_id: int) -> Optional[dict]: ...
     async def create_or_find_datasource(self, **kw) -> Optional[int]: ...
     async def healthy(self) -> bool: ...
 
@@ -334,6 +337,61 @@ class DSClient:
             "scheduleTime": "",
             "startParams": start_params,
         })
+
+    async def complement_data(
+        self, pd_code: int, start_date: str, end_date: str,
+        run_mode: str = "RUN_MODE_SERIAL",
+        start_params: str = "",
+    ) -> Optional[dict]:
+        """补数据 — 调 DS complement API，DS 自动按日期展开实例。
+
+        Args:
+            pd_code: 工作流 process definition code
+            start_date: 开始日期，格式 "yyyy-MM-dd HH:mm:ss"
+            end_date: 结束日期，格式 "yyyy-MM-dd HH:mm:ss"
+            run_mode: RUN_MODE_SERIAL（串行）或 RUN_MODE_PARALLEL（并行）
+            start_params: JSON 格式的启动参数
+        """
+        import json as _json
+        pc = await self._discover_project()
+        if not pc:
+            return None
+        schedule_time = _json.dumps(
+            {"complementStartDate": start_date, "complementEndDate": end_date}
+        )
+        return await self.post(f"/projects/{pc}/executors/start-process-instance", data={
+            "processDefinitionCode": pd_code,
+            "failureStrategy": "CONTINUE",
+            "warningType": "NONE",
+            "execType": "COMPLEMENT_DATA",
+            "scheduleTime": schedule_time,
+            "runMode": run_mode,
+            "startParams": start_params,
+            "complementDependentMode": "OFF_MODE",
+        })
+
+    async def query_process_instances(
+        self, pd_code: int = 0,
+        page_no: int = 1, page_size: int = 20,
+        state_type: str = "",
+    ) -> Optional[dict]:
+        """查询工作流实例列表"""
+        pc = await self._discover_project()
+        if not pc:
+            return None
+        params = {"pageNo": page_no, "pageSize": page_size}
+        if pd_code:
+            params["processDefinitionCode"] = pd_code
+        if state_type:
+            params["stateType"] = state_type
+        return await self.get(f"/projects/{pc}/process-instances", params=params)
+
+    async def query_process_instance(self, instance_id: int) -> Optional[dict]:
+        """查询单个工作流实例详情"""
+        pc = await self._discover_project()
+        if not pc:
+            return None
+        return await self.get(f"/projects/{pc}/process-instances/{instance_id}")
 
     async def create_or_find_datasource(self, name: str, db_type: str, host: str, port: int,
                                          database: str, username: str, password: str) -> Optional[int]:

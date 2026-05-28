@@ -7,7 +7,7 @@ TDD tests for:
 """
 import pytest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 from fastapi import HTTPException
 
 
@@ -309,46 +309,55 @@ class TestMigrateLockColumns:
 # ─────────────────────────────────────────────
 
 class TestRunSyncTask:
-    def _make_datasource(self, ds_id):
-        ds = MagicMock()
-        ds.id = ds_id
-        return ds
+    """run_sync_task 已改为 async + DS 调度，测试需 await"""
 
-    def test_task_not_found_raises_404(self):
+    @pytest.mark.asyncio
+    async def test_task_not_found_raises_404(self):
         from app.api.sync_tasks import run_sync_task
         db = MagicMock()
         db.query.return_value.filter.return_value.first.return_value = None
         with pytest.raises(HTTPException) as exc:
-            run_sync_task(task_id=999, db=db, current_user=_make_user())
+            await run_sync_task(task_id=999, db=db, current_user=_make_user())
         assert exc.value.status_code == 404
 
-    def test_missing_datasource_raises_400(self):
+    @pytest.mark.asyncio
+    async def test_no_workflow_auto_publishes(self):
+        """没有关联工作流时，自动调 publish_as_workflow"""
         from app.api.sync_tasks import run_sync_task
+        from app.models.sync_task import SyncTask
+
         task = _make_sync_task()
+        task.ds_workflow_id = None
         db = MagicMock()
 
         def query_side(model):
-            from app.models.sync_task import SyncTask
             q = MagicMock()
             if model is SyncTask:
                 q.filter.return_value.first.return_value = task
             else:
-                q.filter.return_value.first.return_value = None  # datasource missing
+                q.filter.return_value.first.return_value = None
             return q
-
         db.query.side_effect = query_side
-        with pytest.raises(HTTPException) as exc:
-            run_sync_task(task_id=task.id, db=db, current_user=_make_user())
-        assert exc.value.status_code == 400
 
-    def test_successful_run_updates_task_status(self):
+        with patch("app.api.sync_tasks.publish_as_workflow", new_callable=AsyncMock) as mock_pub:
+            # publish_as_workflow 之后 task 仍然没有 ds_workflow_id → 502
+            with pytest.raises(HTTPException) as exc:
+                await run_sync_task(task_id=task.id, db=db, current_user=_make_user())
+            assert exc.value.status_code == 502
+            mock_pub.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_successful_ds_submit(self):
+        """已有 DS 工作流时，调 start_process_instance 并返回 success"""
         from app.api.sync_tasks import run_sync_task
         from app.models.sync_task import SyncTask
-        from app.models.datasource import DataSource
+        from app.models.workflow import Workflow
 
         task = _make_sync_task()
-        src = self._make_datasource(1)
-        dst = self._make_datasource(2)
+        task.ds_workflow_id = 1
+
+        wf = MagicMock(spec=Workflow)
+        wf.ds_process_code = 12345
 
         db = MagicMock()
 
@@ -356,76 +365,18 @@ class TestRunSyncTask:
             q = MagicMock()
             if model is SyncTask:
                 q.filter.return_value.first.return_value = task
-            elif model is DataSource:
-                # first call returns src, second returns dst
-                q.filter.return_value.first.side_effect = [src, dst]
+            elif model is Workflow:
+                q.filter.return_value.first.return_value = wf
+            else:
+                q.filter.return_value.first.return_value = None
             return q
-
         db.query.side_effect = query_side
 
-        fake_job = {"job": {"content": []}}
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "DataX finished successfully."
-        mock_result.stderr = ""
+        fake_ds = AsyncMock()
+        fake_ds.start_process_instance.return_value = {"id": 100}
 
-        with patch("app.api.sync_tasks.run_sync_task.__wrapped__", None, create=True), \
-             patch("app.core.datax_builder.build_for_sync_task", return_value=fake_job), \
-             patch("subprocess.run", return_value=mock_result), \
-             patch("tempfile.NamedTemporaryFile"), \
-             patch("os.unlink"):
-            # Call directly with mocked internals
-            import app.api.sync_tasks as mod
-            with patch.object(mod, "build_for_sync_task" if hasattr(mod, "build_for_sync_task") else "_", fake_job, create=True):
-                pass  # build_for_sync_task is imported inside the function
-
-        # Simplified: just verify the 404/400 guards work (integration tested on server)
-
-    def test_failed_run_sets_failure_status(self):
-        """subprocess non-zero exit → last_run_status = FAILURE"""
-        from app.api import sync_tasks as mod
-        from app.models.sync_task import SyncTask
-        from app.models.datasource import DataSource
-
-        task = _make_sync_task()
-        src = self._make_datasource(1)
-        dst = self._make_datasource(2)
-
-        db = MagicMock()
-        call_counts = {"ds": 0}
-
-        def query_side(model):
-            q = MagicMock()
-            if model is SyncTask:
-                q.filter.return_value.first.return_value = task
-            elif model is DataSource:
-                call_counts["ds"] += 1
-                q.filter.return_value.first.return_value = src if call_counts["ds"] == 1 else dst
-            return q
-
-        db.query.side_effect = query_side
-
-        fake_result = MagicMock()
-        fake_result.returncode = 1
-        fake_result.stdout = ""
-        fake_result.stderr = "ERROR: connection refused"
-
-        import json, tempfile, os
-
-        with patch("app.core.datax_builder.build_for_sync_task", return_value={}), \
-             patch("subprocess.run", return_value=fake_result), \
-             patch("builtins.open", MagicMock()), \
-             patch("json.dump"), \
-             patch("os.unlink"), \
-             patch("tempfile.NamedTemporaryFile") as mock_tmp:
-            mock_tmp.return_value.__enter__ = MagicMock(return_value=MagicMock(name="/tmp/test.json"))
-            mock_tmp.return_value.__exit__ = MagicMock(return_value=False)
-            mock_tmp.return_value.name = "/tmp/test.json"
-
-            try:
-                result = mod.run_sync_task(task_id=task.id, db=db, current_user=_make_user())
-                assert result["success"] is False
-                assert task.last_run_status == "FAILURE"
-            except Exception:
-                # import-time issues in test env are acceptable; server integration covers this
-                pass
+        with patch("app.core.ds_client.get_ds_client", return_value=fake_ds), \
+             patch("app.core.ds_client.DSClient.get_instance", return_value=fake_ds):
+            result = await run_sync_task(task_id=task.id, db=db, current_user=_make_user())
+        assert result["success"] is True
+        assert "SUBMITTED" == task.last_run_status

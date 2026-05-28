@@ -376,30 +376,40 @@ class RunSyncTaskRequest(BaseModel):
 
 
 @router.post("/{task_id}/run")
-def run_sync_task(
+async def run_sync_task(
     task_id: int,
     body: Optional[RunSyncTaskRequest] = None,
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_permission("sync:write")),
 ):
-    """手动运行同步任务：生成 DataX JSON 并执行"""
+    """手动运行同步任务 — 统一走 DS 调度。
+
+    自动 publish-as-workflow（幂等），然后调 DS start_process_instance。
+    """
     import json
     import time
-    import subprocess
-    import tempfile
-    from datetime import date as _date
-    from app.core.param_resolver import resolve
+    from app.core.ds_client import get_ds_client
+    from app.core.param_resolver import SYSTEM_PARAMS
+    from app.models.workflow import Workflow
 
     task = db.query(SyncTask).filter(SyncTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    src = db.query(DataSource).filter(DataSource.id == task.source_id).first()
-    dst = db.query(DataSource).filter(DataSource.id == task.target_id).first()
-    if not src or not dst:
-        raise HTTPException(status_code=400, detail="任务关联的数据源已被删除")
+    # 确保已发布到 DS（幂等）
+    wf = None
+    if task.ds_workflow_id:
+        wf = db.query(Workflow).filter(Workflow.id == task.ds_workflow_id).first()
 
-    # 解析 run_date 并替换 where_clause 中的 ${bizdate} 等占位符
+    if not wf or not wf.ds_process_code:
+        pub_result = await publish_as_workflow(task_id, db, current_user)
+        if task.ds_workflow_id:
+            wf = db.query(Workflow).filter(Workflow.id == task.ds_workflow_id).first()
+        if not wf or not wf.ds_process_code:
+            raise HTTPException(status_code=502, detail="发布到 DS 失败，无法运行")
+
+    # 构建启动参数（注入 bizdate 等系统参数）
+    from datetime import date as _date
     rd = _date.today()
     if body and body.run_date:
         try:
@@ -407,57 +417,33 @@ def run_sync_task(
         except ValueError:
             raise HTTPException(status_code=400, detail="run_date 必须为 YYYY-MM-DD")
 
-    original_where = task.where_clause
-    if original_where:
-        task.where_clause = resolve(original_where, rd)
+    params = {k: f(rd) for k, f in SYSTEM_PARAMS.items()}
+    start_params = json.dumps(params, ensure_ascii=False)
 
-    from app.core.datax_builder import build_for_sync_task
-    try:
-        datax_job = build_for_sync_task(task, src, dst, mask_password=False)
-    except ValueError as e:
-        # 还原 where_clause，避免污染 ORM 对象
-        task.where_clause = original_where
-        raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        # 还原 where_clause（仅用于 builder，不持久化）
-        task.where_clause = original_where
-
-    # 写入临时文件执行
-    with tempfile.NamedTemporaryFile(
-        suffix=".json", mode="w", delete=False, encoding="utf-8"
-    ) as f:
-        json.dump(datax_job, f, ensure_ascii=False)
-        tmp_path = f.name
-
+    # 触发 DS 执行
     start = time.time()
-    try:
-        result = subprocess.run(
-            ["python", "/opt/datax/bin/datax.py", tmp_path],
-            capture_output=True, text=True, timeout=600,
-        )
-        duration_ms = int((time.time() - start) * 1000)
-        success = result.returncode == 0
+    ds = get_ds_client()
+    result = await ds.start_process_instance(
+        wf.ds_process_code, start_params=start_params,
+    )
+    duration_ms = int((time.time() - start) * 1000)
 
-        # 更新运行状态
-        task.last_run_time = datetime.utcnow()
-        task.last_run_status = "SUCCESS" if success else "FAILURE"
-        db.commit()
-
-        return {
-            "success": success,
-            "exit_code": result.returncode,
-            "stdout": result.stdout[-5000:] if result.stdout else "",
-            "stderr": result.stderr[-2000:] if result.stderr else "",
-            "duration_ms": duration_ms,
-        }
-    except subprocess.TimeoutExpired:
+    if result is None:
         task.last_run_time = datetime.utcnow()
         task.last_run_status = "FAILURE"
         db.commit()
-        raise HTTPException(status_code=504, detail="DataX 执行超时(>600s)")
-    finally:
-        import os
-        os.unlink(tmp_path)
+        raise HTTPException(status_code=502, detail="DS 触发执行失败")
+
+    task.last_run_time = datetime.utcnow()
+    task.last_run_status = "SUBMITTED"
+    db.commit()
+
+    return {
+        "success": True,
+        "duration_ms": duration_ms,
+        "stdout": f"已提交到 DS 调度执行 (pd_code={wf.ds_process_code})",
+        "stderr": "",
+    }
 
 
 @router.post("/{task_id}/publish-as-workflow")
@@ -471,6 +457,8 @@ async def publish_as_workflow(
     from app.models.component import Component
     from app.models.workflow import Workflow
     from app.models.resource_access import SysResourceAccess
+    from app.core.workflow_publisher import WorkflowPublisher
+    from app.core.ds_client import get_ds_client
 
     task = db.query(SyncTask).filter(SyncTask.id == task_id).first()
     if not task:
@@ -495,7 +483,7 @@ async def publish_as_workflow(
         "rawJson": new_raw_json,
     }
 
-    # 幂等：若已存在关联的 datax 组件，只更新 config_json 和 rawJson，不重复创建
+    # 幂等：若已存在关联的 datax 组件，更新 config_json 并重新同步到 DS
     existing_comp = (
         db.query(Component)
         .filter(Component.type == "datax")
@@ -509,11 +497,27 @@ async def publish_as_workflow(
         existing_comp.config_json = config
         db.commit()
         db.refresh(existing_comp)
-        wf_id = task.ds_workflow_id
+
+        # 找到关联的工作流并重新同步到 DS
+        wf = None
+        if task.ds_workflow_id:
+            wf = db.query(Workflow).filter(Workflow.id == task.ds_workflow_id).first()
+        if wf and wf.ds_process_code:
+            publisher = WorkflowPublisher(db, get_ds_client())
+            try:
+                pd_code, schedule_id = await publisher.publish(wf)
+                wf.ds_process_code = pd_code
+                wf.ds_schedule_id = schedule_id
+                wf.status = "online"
+                db.commit()
+            except Exception as e:
+                logger.warning("DS re-sync failed for workflow %s: %s", wf.id, e)
+                raise HTTPException(status_code=502, detail=f"DS 重新同步失败：{e}")
+
         return {
             "component_id": existing_comp.id,
-            "workflow_id": wf_id,
-            "ds_process_code": None,
+            "workflow_id": task.ds_workflow_id,
+            "ds_process_code": wf.ds_process_code if wf else None,
         }
 
     comp_name = f"[DataX] {task.name}"
@@ -564,10 +568,10 @@ async def publish_as_workflow(
         granted_by=current_user.id,
     ))
 
-    from app.api.workflow import _sync_to_ds
+    publisher = WorkflowPublisher(db, get_ds_client())
     pd_code = None
     try:
-        pd_code, schedule_id = await _sync_to_ds(db, wf)
+        pd_code, schedule_id = await publisher.publish(wf)
         wf.ds_process_code = pd_code
         wf.ds_schedule_id = schedule_id
         wf.status = "online"
@@ -575,11 +579,10 @@ async def publish_as_workflow(
     except Exception as e:
         db.rollback()
         if pd_code:
-            from app.core.ds_client import get_ds_client
             try:
                 await get_ds_client().delete_process_definition(pd_code)
-            except Exception as e:
-                logger.warning("orphaned DS process %s: cleanup failed: %s", pd_code, e)
+            except Exception:
+                logger.warning("orphaned DS process %s: cleanup failed", pd_code)
         raise HTTPException(status_code=502, detail=f"DS 同步失败：{e}")
 
     db.commit()

@@ -562,14 +562,11 @@ async function handleRun() {
   try {
     const res: any = await runSyncTask(props.taskId)
     if (res.success) {
-      Message.success(`运行成功 · ${res.duration_ms}ms`)
+      Message.success('已提交到调度系统执行，可在运行实例中查看进度')
     } else {
       Message.error('运行失败，请查看日志')
     }
-    if (res.stdout || res.stderr) {
-      console.log('[DataX stdout]', res.stdout)
-      if (res.stderr) console.warn('[DataX stderr]', res.stderr)
-    }
+    if (res.stdout) console.log('[DS submit]', res.stdout)
   } catch (e: any) {
     Message.error(e?.response?.data?.detail || '运行失败')
   } finally { running.value = false }
