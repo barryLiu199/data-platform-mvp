@@ -1,7 +1,7 @@
 """Tests for app/core/security.py — JWT 签发/验证/密码哈希"""
 import time
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from fastapi import HTTPException
 
 from app.core.security import (
@@ -13,30 +13,21 @@ from app.core.security import (
 )
 
 
-# ---- 密码哈希 ----
-# passlib 1.7.4 在本地 Python 3.13 + bcrypt 4.x 环境有兼容性问题，mock pwd_context
+# ---- 密码哈希（真实 bcrypt，无 mock）----
 
 def test_hash_and_verify_password():
-    with patch("app.core.security.pwd_context") as mock_ctx:
-        mock_ctx.hash.return_value = "$2b$12$fakehash"
-        mock_ctx.verify.return_value = True
-        hashed = hash_password("mypassword")
-        assert verify_password("mypassword", hashed)
+    hashed = hash_password("mypassword")
+    assert verify_password("mypassword", hashed)
 
 
 def test_wrong_password_fails():
-    with patch("app.core.security.pwd_context") as mock_ctx:
-        mock_ctx.hash.return_value = "$2b$12$fakehash"
-        mock_ctx.verify.return_value = False
-        hashed = hash_password("correct")
-        assert not verify_password("wrong", hashed)
+    hashed = hash_password("correct")
+    assert not verify_password("wrong", hashed)
 
 
 def test_hash_is_not_plaintext():
-    with patch("app.core.security.pwd_context") as mock_ctx:
-        mock_ctx.hash.return_value = "$2b$12$fakehash"
-        pw = "secret123"
-        assert hash_password(pw) != pw
+    pw = "secret123"
+    assert hash_password(pw) != pw
 
 
 # ---- JWT 签发与解码 ----

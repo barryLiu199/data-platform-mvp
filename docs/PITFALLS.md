@@ -97,7 +97,37 @@ for (let i = 0; i < children.length; i++) {
 
 ---
 
-## [2026-05] DataX 任务手动触发没有锁保护
+## [2026-05] passlib 1.7.4 + bcrypt 4.x 兼容性导致登录 401
+
+**现象**：部署到新服务器后，输入正确密码无法登录，始终停在登录页。后端日志：
+```
+AttributeError: module 'bcrypt' has no attribute '__about__'
+POST /api/auth/login 401
+```
+
+**根因**：passlib 1.7.4 已停止维护（最后发版 2020 年），启动时尝试读取 `bcrypt.__about__.__version__` 获取版本号，而 bcrypt 4.x 移除了 `__about__` 属性，导致整个 bcrypt backend 初始化失败，`pwd_context.verify()` 全部抛异常，登录永远返回 401。
+
+**次生问题**：passlib 生成的 hash 使用了错误的 padding bits（警告：`encountered a bcrypt hash with incorrectly set padding bits`），导致旧 hash 无法被原生 bcrypt 直接验证，需要重置密码。
+
+**修复**：
+1. `requirements.txt` 删除 `passlib[bcrypt]==1.7.4`，保留 `bcrypt==4.1.3`
+2. `security.py` 的 `hash_password`/`verify_password` 直接调 `bcrypt.hashpw`/`bcrypt.checkpw`，接口签名不变，其他文件零改动
+3. `test_security.py` 去掉 mock，改为真实 bcrypt 测试
+4. 数据库里旧的 passlib hash 需要重置：
+```bash
+# 在服务器上重置 admin 密码
+NEW_HASH=$(docker exec dmp-portal-api python3 -c "import bcrypt; print(bcrypt.hashpw(b'admin123', bcrypt.gensalt()).decode())")
+docker exec -i dmp-mysql mysql -uroot -pDpMvp2026Secure portal_db \
+  -e "UPDATE sys_user SET password='$NEW_HASH' WHERE username='admin';"
+```
+
+**经验**：依赖已停更 5 年的库（passlib）是架构债务。bcrypt 本来就是 passlib 的唯一后端，中间层没有价值。新服务器部署后第一件事先查 `/api/health`，再用 curl 测登录接口，不要直接在浏览器试。
+
+**涉及文件**：`portal/backend/app/core/security.py`、`requirements.txt`、`tests/test_security.py`
+
+---
+
+
 
 **现象**：多用户同时点"运行"可能并发执行同一个 DataX 任务。
 
