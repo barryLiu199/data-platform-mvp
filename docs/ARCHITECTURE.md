@@ -18,6 +18,8 @@
 - 临时：portal-backend 启动时加 reaper —— 把所有 status='running' 但 started_at > 1h 前的实例改成 'failed'，error_msg='进程重启遗留'。
 - 长期：Backfill 应该把每个 instance 提交到 DolphinScheduler 跑（复用 workflow 的 ds_process_code + startParams），由 DS 保证持久化与重试，portal-backend 只做编排和状态轮询。
 
+**状态**：✅ 已解决(2026-05-28)— 编排完全迁移到 DS complement API。一次 `complement_data()` 调用让 DS 自动按日展开实例，portal 只做状态轮询。新增 reaper 启动时恢复同步、stop 真正终止 DS 实例。
+
 ---
 
 ### [高] DataX 运行无队列/并发保护
