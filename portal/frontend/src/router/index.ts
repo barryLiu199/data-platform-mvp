@@ -107,6 +107,18 @@ const router = createRouter({
           meta: { title: '数据血缘' },
         },
         {
+          path: 'data-quality',
+          name: 'DataQuality',
+          component: () => import('../views/DataQuality.vue'),
+          meta: { title: '数据质量' },
+        },
+        {
+          path: 'data-quality/:id',
+          name: 'QualityRuleDetail',
+          component: () => import('../views/QualityRuleDetail.vue'),
+          meta: { title: '规则详情' },
+        },
+        {
           path: 'monitor',
           name: 'Monitor',
           component: () => import('../views/Monitor.vue'),

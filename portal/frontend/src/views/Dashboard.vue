@@ -118,7 +118,7 @@ import { EXECUTION_STATUS } from '../constants/status'
 import SchedulePieChart from '../components/SchedulePieChart.vue'
 import {
   IconLink, IconSync, IconCalendar, IconApps,
-  IconBranch, IconNotification, IconCode,
+  IconBranch, IconNotification, IconCode, IconCheckCircle,
 } from '@arco-design/web-vue/es/icon'
 import dayjs from 'dayjs'
 
@@ -133,6 +133,7 @@ const stats = reactive({
   yesterday_runs: 0, yesterday_success: 0,
   yesterday_failure: 0, yesterday_pending: 0,
   workflow_trend: [] as number[],
+  quality_rule_count: 0, quality_today_pass: 0, quality_today_fail: 0,
 })
 
 const recentRuns = ref<any[]>([])
@@ -186,6 +187,7 @@ const statCards = computed(() => [
   { label: '工作流', value: stats.workflow_total, desc: '调度编排', color: 'var(--color-warning)', iconBg: 'var(--color-warning-light)', icon: IconBranch, path: '/workflows' },
   { label: '词根', value: stats.word_root_count, desc: '命名规范', color: 'var(--color-accent)', iconBg: 'var(--color-accent-light)', icon: IconApps, path: '/field-assets' },
   { label: '昨日执行', value: stats.yesterday_runs, desc: stats.yesterday_failure > 0 ? `${stats.yesterday_failure} 个失败` : '全部成功', color: stats.yesterday_failure > 0 ? 'var(--color-danger)' : '#722ED1', iconBg: stats.yesterday_failure > 0 ? 'var(--color-danger-light)' : '#F5F3FF', icon: IconCalendar, path: '/scheduler/history' },
+  { label: '数据质量', value: stats.quality_rule_count || 0, desc: stats.quality_today_fail > 0 ? `${stats.quality_today_fail} 条失败` : '全部通过', color: stats.quality_today_fail > 0 ? 'var(--color-danger)' : '#00B42A', iconBg: stats.quality_today_fail > 0 ? 'var(--color-danger-light)' : '#E8FFF3', icon: IconCheckCircle, path: '/data-quality' },
 ])
 
 function trendHeight(v: number) {
@@ -284,7 +286,7 @@ onUnmounted(() => {
 /* ─── 统计卡片 ─── */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 14px;
   margin-bottom: var(--space-5);
 }

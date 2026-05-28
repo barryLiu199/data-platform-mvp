@@ -255,7 +255,33 @@ async def sync_last_run(
     except Exception as e:
         logger.exception("alert notify dispatch failed: %s", e)
 
-    return {"synced": synced, "alerted": alerted}
+    # 触发数据质量规则
+    quality_triggered = 0
+    try:
+        from app.models.quality import QualityRule as QRule
+        from app.core.quality_engine import execute_rule as exec_qrule
+        for w in workflows:
+            if w.last_run_status != "SUCCESS":
+                continue
+            qrules = (
+                db.query(QRule)
+                .filter(
+                    QRule.trigger_type == "workflow",
+                    QRule.trigger_workflow_id == w.id,
+                    QRule.enabled == True,
+                )
+                .all()
+            )
+            for qr in qrules:
+                try:
+                    exec_qrule(qr.id, "workflow")
+                    quality_triggered += 1
+                except Exception:
+                    logger.warning("quality rule %s trigger failed", qr.id)
+    except Exception as e:
+        logger.exception("quality trigger dispatch failed: %s", e)
+
+    return {"synced": synced, "alerted": alerted, "quality_triggered": quality_triggered}
 # ===== CRUD =====
 @router.get("")
 def list_workflows(

@@ -62,6 +62,7 @@
             <a-tabs v-model:active-key="detailTab" type="line" size="small">
               <a-tab-pane key="columns" title="字段定义" />
               <a-tab-pane key="preview" title="数据预览" />
+              <a-tab-pane key="quality" title="数据质量" />
             </a-tabs>
           </div>
 
@@ -160,6 +161,38 @@
             </div>
           </div>
 
+          <!-- 数据质量 -->
+          <div v-show="detailTab === 'quality'">
+            <div v-if="qualityLoading" class="loading-state"><a-spin /></div>
+            <div v-else-if="!qualityRules.length" class="empty-state">该表暂无质量规则</div>
+            <a-table v-else :data="qualityRules" :bordered="false" :pagination="false" size="small" stripe>
+              <template #columns>
+                <a-table-column title="规则名称" data-index="rule_name" :width="180" />
+                <a-table-column title="模板" data-index="template_code" :width="120" />
+                <a-table-column title="级别" :width="80">
+                  <template #cell="{ record }">
+                    <a-tag :color="record.severity === 'error' ? 'red' : record.severity === 'warning' ? 'orange' : 'blue'" size="small">
+                      {{ record.severity }}
+                    </a-tag>
+                  </template>
+                </a-table-column>
+                <a-table-column title="最近状态" :width="80">
+                  <template #cell="{ record }">
+                    <a-tag v-if="record.last_check_status === 'pass'" color="green" size="small">通过</a-tag>
+                    <a-tag v-else-if="record.last_check_status === 'fail'" color="red" size="small">失败</a-tag>
+                    <a-tag v-else-if="record.last_check_status === 'error'" color="orange" size="small">异常</a-tag>
+                    <span v-else>-</span>
+                  </template>
+                </a-table-column>
+                <a-table-column title="最近检查" :width="160">
+                  <template #cell="{ record }">
+                    {{ record.last_check_time || '-' }}
+                  </template>
+                </a-table-column>
+              </template>
+            </a-table>
+          </div>
+
           </div>
         </div>
       </div>
@@ -171,7 +204,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { IconRefresh, IconSearch, IconStorage } from '@arco-design/web-vue/es/icon'
-import { getDatasources, getMetadataTables, getMetadataColumns, getMetadataPreview } from '../api'
+import { getDatasources, getMetadataTables, getMetadataColumns, getMetadataPreview, getMetadataQuality } from '../api'
 import PageHeader from '../components/PageHeader.vue'
 
 const dsOptions = ref<{ label: string; value: number }[]>([])
@@ -181,11 +214,13 @@ const tablesLoading = ref(false)
 const tableFilter = ref('')
 
 const selectedTable = ref<string | null>(null)
-const detailTab = ref<'columns' | 'preview'>('columns')
+const detailTab = ref<'columns' | 'preview' | 'quality'>('columns')
 const columns = ref<any[]>([])
 const columnsLoading = ref(false)
 const preview = ref<any>({ columns: [], rows: [] })
 const previewLoading = ref(false)
+const qualityRules = ref<any[]>([])
+const qualityLoading = ref(false)
 
 const filteredTables = computed(() => {
   if (!tableFilter.value) return tables.value
@@ -292,7 +327,19 @@ async function loadPreview() {
 import { watch } from 'vue'
 watch(detailTab, (v) => {
   if (v === 'preview' && selectedTable.value && !preview.value.columns?.length) loadPreview()
+  if (v === 'quality' && selectedTable.value && dsId.value) loadQuality()
 })
+
+async function loadQuality() {
+  qualityLoading.value = true
+  try {
+    const { data } = await getMetadataQuality(dsId.value!, selectedTable.value)
+    qualityRules.value = data
+  } catch {
+    qualityRules.value = []
+  }
+  qualityLoading.value = false
+}
 
 onMounted(loadDatasources)
 </script>

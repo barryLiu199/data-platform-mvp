@@ -135,7 +135,7 @@ export const getMetadataTables = (datasource_id: number, keyword?: string, limit
   api.get('/metadata/tables', { params: { datasource_id, keyword, limit } })
 export const getMetadataColumns = (datasource_id: number, table: string) => api.get('/metadata/columns', { params: { datasource_id, table } })
 export const getMetadataPreview = (datasource_id: number, table: string, limit = 10) => api.get('/metadata/preview', { params: { datasource_id, table, limit } })
-export const getMetadataQuality = (datasource_id: number, table: string) => api.get('/metadata/quality', { params: { datasource_id, table } })
+export const getMetadataQuality = (datasource_id: number, table_name: string) => api.get('/quality/metadata/quality', { params: { datasource_id, table_name } })
 export const generateDDL = (data: { datasource_id: number; target_table: string; columns: any[] }) =>
   api.post('/metadata/generate-ddl', data)
 export const executeDDL = (data: { datasource_id: number; ddl: string }) =>
@@ -266,5 +266,21 @@ export const adminCreateChannel = (data: any) => api.post('/admin/notify-channel
 export const adminUpdateChannel = (id: number, data: any) => api.put(`/admin/notify-channels/${id}`, data)
 export const adminDeleteChannel = (id: number) => api.delete(`/admin/notify-channels/${id}`)
 export const adminTestChannel = (id: number) => api.post(`/admin/notify-channels/${id}/test`)
+
+// Quality
+export const getQualityTemplates = () => api.get('/quality/templates')
+export const getQualityRules = (params: any) => api.get('/quality/rules', { params })
+export const getQualityRule = (id: number) => api.get(`/quality/rules/${id}`)
+export const createQualityRule = (data: any) => api.post('/quality/rules', data)
+export const updateQualityRule = (id: number, data: any) => api.put(`/quality/rules/${id}`, data)
+export const deleteQualityRule = (id: number) => api.delete(`/quality/rules/${id}`)
+export const toggleQualityRule = (id: number) => api.patch(`/quality/rules/${id}/toggle`)
+export const executeQualityRule = (id: number) => api.post(`/quality/rules/${id}/execute`)
+export const batchExecuteQuality = (data?: any) => api.post('/quality/rules/batch-execute', data || {})
+export const executeByTable = (data: any) => api.post('/quality/execute-by-table', data)
+export const previewQualitySql = (data: any) => api.post('/quality/rules/preview-sql', data)
+export const getQualityResults = (params: any) => api.get('/quality/results', { params })
+export const getQualityTrend = (params: any) => api.get('/quality/results/trend', { params })
+export const getQualityStats = () => api.get('/quality/stats')
 
 export default api

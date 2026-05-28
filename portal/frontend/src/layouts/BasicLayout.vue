@@ -83,6 +83,10 @@
             <template #icon><icon-relation /></template>
             数据血缘
           </a-menu-item>
+          <a-menu-item key="/data-quality">
+            <template #icon><icon-check-circle /></template>
+            数据质量
+          </a-menu-item>
         </a-sub-menu>
 
         <a-sub-menu key="system">

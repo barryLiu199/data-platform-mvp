@@ -22,6 +22,7 @@ def run_all_migrations():
     _migrate_lock_columns()
     _migrate_backfill_tables()
     _migrate_backfill_ds_columns()
+    _migrate_quality_tables()
 
 
 def _migrate_backfill_tables():
@@ -415,4 +416,82 @@ def _migrate_backfill_ds_columns():
                 "ALTER TABLE backfill_instance ADD COLUMN ds_instance_id BIGINT NULL "
                 "COMMENT 'DS process instance id'"
             ))
+            conn.commit()
+
+
+def _migrate_quality_tables():
+    """数据质量三表（幂等）"""
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT TABLE_NAME FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
+            "('quality_rule_template','quality_rule','quality_check_result')"
+        )).fetchall()
+        existing = {r[0] for r in rows}
+
+        if 'quality_rule_template' not in existing:
+            conn.execute(text("""
+                CREATE TABLE quality_rule_template (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    code VARCHAR(64) NOT NULL UNIQUE,
+                    name VARCHAR(128) NOT NULL,
+                    category VARCHAR(32) NOT NULL,
+                    level VARCHAR(32) NOT NULL,
+                    description TEXT,
+                    config_schema JSON NOT NULL,
+                    sql_template TEXT,
+                    display_order INT NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
+
+        if 'quality_rule' not in existing:
+            conn.execute(text("""
+                CREATE TABLE quality_rule (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    template_code VARCHAR(64) NOT NULL,
+                    datasource_id BIGINT NULL,
+                    table_name VARCHAR(256) NULL,
+                    column_name VARCHAR(256) NULL,
+                    config JSON NOT NULL,
+                    severity VARCHAR(16) NOT NULL DEFAULT 'warning',
+                    trigger_type VARCHAR(32) NOT NULL DEFAULT 'manual',
+                    trigger_workflow_id BIGINT NULL,
+                    notify_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    notify_channel_ids JSON NULL,
+                    enabled TINYINT(1) NOT NULL DEFAULT 1,
+                    last_check_time DATETIME NULL,
+                    last_check_status VARCHAR(16) NULL,
+                    created_by BIGINT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_qr_template (template_code),
+                    INDEX idx_qr_ds_table (datasource_id, table_name),
+                    INDEX idx_qr_trigger_wf (trigger_workflow_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
+
+        if 'quality_check_result' not in existing:
+            conn.execute(text("""
+                CREATE TABLE quality_check_result (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    rule_id BIGINT NOT NULL,
+                    check_date DATE NOT NULL,
+                    status VARCHAR(16) NOT NULL,
+                    actual_value DOUBLE NULL,
+                    expected_value DOUBLE NULL,
+                    detail JSON NULL,
+                    executed_sql TEXT NULL,
+                    duration_ms INT NULL,
+                    error_message TEXT NULL,
+                    triggered_by VARCHAR(32) NOT NULL DEFAULT 'manual',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_qcr_rule_date (rule_id, check_date),
+                    INDEX idx_qcr_date (check_date),
+                    UNIQUE KEY uk_rule_date (rule_id, check_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
             conn.commit()

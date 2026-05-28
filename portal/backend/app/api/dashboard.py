@@ -141,6 +141,14 @@ async def get_stats(
     word_root_count = db.query(func.count(WordRoot.id)).scalar() or 0
     workflow_count = db.query(func.count(Workflow.id)).scalar() or 0
 
+    # 数据质量统计
+    from app.models.quality import QualityRule as QRule, QualityCheckResult as QResult
+    quality_rule_count = db.query(func.count(QRule.id)).filter(QRule.enabled == True).scalar() or 0
+    today_date = datetime.now().date()
+    today_quality = db.query(QResult).filter(QResult.check_date == today_date).all()
+    quality_today_pass = sum(1 for r in today_quality if r.status == "pass")
+    quality_today_fail = sum(1 for r in today_quality if r.status == "fail")
+
     return {
         "datasource_total": total_ds,
         "datasource_active": active_ds,
@@ -153,4 +161,7 @@ async def get_stats(
         "yesterday_pending": yesterday_pending,
         "workflow_trend": trend[-7:],
         "word_root_count": word_root_count,
+        "quality_rule_count": quality_rule_count,
+        "quality_today_pass": quality_today_pass,
+        "quality_today_fail": quality_today_fail,
     }
