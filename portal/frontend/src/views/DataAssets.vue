@@ -116,6 +116,11 @@
                     <span>{{ record.comment || '—' }}</span>
                   </template>
                 </a-table-column>
+                <a-table-column title="血缘" :width="80" align="center">
+                  <template #cell="{ record }">
+                    <a-link @click="goLineage(record.name)">查看</a-link>
+                  </template>
+                </a-table-column>
               </template>
             </a-table>
           </div>
@@ -202,10 +207,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconRefresh, IconSearch, IconStorage } from '@arco-design/web-vue/es/icon'
 import { getDatasources, getMetadataTables, getMetadataColumns, getMetadataPreview, getMetadataQuality } from '../api'
 import PageHeader from '../components/PageHeader.vue'
+
+const router = useRouter()
 
 const dsOptions = ref<{ label: string; value: number }[]>([])
 const dsId = ref<number | undefined>(undefined)
@@ -339,6 +347,11 @@ async function loadQuality() {
     qualityRules.value = []
   }
   qualityLoading.value = false
+}
+
+function goLineage(colName: string) {
+  if (!selectedTable.value) return
+  router.push({ path: '/lineage', query: { focus: `${selectedTable.value}.${colName}` } })
 }
 
 onMounted(loadDatasources)

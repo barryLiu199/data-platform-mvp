@@ -1,7 +1,18 @@
 <template>
   <div class="page">
-    <PageHeader title="数据血缘" description="选择 SQL 组件，追踪上下游表级数据流转">
+    <PageHeader title="数据血缘" description="选择 SQL 组件，追踪上下游表级与字段级数据流转">
       <template #actions>
+        <a-badge :count="failureCount" :max-count="99" v-if="failureCount > 0">
+          <a-button @click="failureDrawer = true">
+            <template #icon><icon-exclamation-circle /></template>
+            未解析
+          </a-button>
+        </a-badge>
+        <a-button v-else @click="failureDrawer = true">
+          <template #icon><icon-exclamation-circle /></template>
+          未解析
+        </a-button>
+        <a-button @click="openManual">手工补登</a-button>
         <a-button @click="handleRefresh" :loading="refreshing">
           <template #icon><icon-refresh /></template>
           刷新血缘
@@ -30,12 +41,18 @@
         <a-option :value="3">3 层</a-option>
       </a-select>
 
-      <a-tooltip content="字段级血缘（即将上线）">
-        <a-switch v-model="fieldLevel" disabled size="small">
-          <template #checked>字段</template>
-          <template #unchecked>字段</template>
-        </a-switch>
-      </a-tooltip>
+      <div v-if="isFieldView" class="field-view-tag">
+        <a-tag color="blue" size="medium">
+          字段视图：{{ selectedColumn?.table }}.{{ selectedColumn?.column }}
+        </a-tag>
+        <a-button size="small" @click="exitColumnView">
+          <template #icon><icon-arrow-left /></template>
+          返回表视图
+        </a-button>
+      </div>
+      <span v-else class="text-muted" style="font-size:12px">
+        💡 点击节点字段进入字段血缘视图
+      </span>
     </div>
 
     <!-- 画布 -->
@@ -52,7 +69,7 @@
         @pane-click="clearHighlight"
       >
         <template #node-lineage-table="nodeProps">
-          <LineageTableNode :data="nodeProps.data" />
+          <LineageTableNode :data="nodeProps.data" @select-column="onSelectColumn" />
         </template>
         <Background />
         <Controls :show-fit-view="true" :show-interactive="false" />
@@ -87,32 +104,45 @@
     <div class="glass-card loading-card" v-else>
       <a-spin dot /><span class="text-muted" style="margin-left:8px">正在构建血缘图...</span>
     </div>
+
+    <ParseFailureDrawer
+      v-model:visible="failureDrawer"
+      @open-manual="openManual"
+      @changed="loadFailureCount"
+    />
+    <ManualLineageModal
+      v-model:visible="manualModal"
+      @created="onManualCreated"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { VueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
-import { IconRefresh } from '@arco-design/web-vue/es/icon'
+import { IconRefresh, IconArrowLeft, IconExclamationCircle } from '@arco-design/web-vue/es/icon'
 import { Message } from '@arco-design/web-vue'
 import PageHeader from '../components/PageHeader.vue'
 import LineageTableNode from '../components/lineage/LineageTableNode.vue'
-import { getLineageEntities, getLineageGraph, refreshLineage } from '../api'
+import ParseFailureDrawer from '../components/lineage/ParseFailureDrawer.vue'
+import ManualLineageModal from '../components/lineage/ManualLineageModal.vue'
+import {
+  getLineageEntities, getLineageGraph, refreshLineage,
+  refreshColumnLineage, getColumnLineageGraph, getColumnParseFailures,
+} from '../api'
 
 interface Entity { id: string | number; name: string; sub_type?: string; status?: string }
-interface FlowNode { id: string; type: string; position: { x: number; y: number }; data: any }
+interface FlowNode { id: string; type: string; position: { x: number; y: number }; data: any; style?: any }
 interface FlowEdge { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string; label?: string; animated?: boolean; data?: any; style?: any }
 
-// 控制栏状态
 const entityId = ref('')
 const depth = ref(2)
-const fieldLevel = ref(false)
 const entities = ref<Entity[]>([])
 const entitiesLoading = ref(false)
 
-// 画布状态
 const flowNodes = ref<FlowNode[]>([])
 const flowEdges = ref<FlowEdge[]>([])
 const graphLoading = ref(false)
@@ -120,8 +150,19 @@ const refreshing = ref(false)
 const queried = ref(false)
 const graphStats = ref({ total_nodes: 0, total_edges: 0, upstream_depth: 0, downstream_depth: 0 })
 
-// 高亮
 const highlightedNodes = ref<Set<string>>(new Set())
+
+// 字段视图状态
+const selectedColumn = ref<{ table: string; column: string } | null>(null)
+const columnPathTables = ref<Set<string>>(new Set())
+const columnPathEdgeKeys = ref<Set<string>>(new Set())  // 'srcTable.col→tgtTable.col'
+
+// 解析失败 + 手工补登
+const failureDrawer = ref(false)
+const manualModal = ref(false)
+const failureCount = ref(0)
+
+const isFieldView = computed(() => selectedColumn.value !== null)
 
 async function loadEntities() {
   entitiesLoading.value = true
@@ -132,26 +173,27 @@ async function loadEntities() {
   entitiesLoading.value = false
 }
 
+async function loadFailureCount() {
+  try {
+    const res = await getColumnParseFailures({ page: 1, page_size: 1 })
+    failureCount.value = res?.total || 0
+  } catch { failureCount.value = 0 }
+}
+
 async function handleQuery() {
   if (!entityId.value) return
-
   graphLoading.value = true
   queried.value = true
+  exitColumnView()
   clearHighlight()
 
   try {
-    const res: any = await getLineageGraph('component', entityId.value, {
-      depth: depth.value,
-      field_level: fieldLevel.value,
-    })
+    const res: any = await getLineageGraph('component', entityId.value, { depth: depth.value })
     flowNodes.value = (res?.nodes || []).map((n: FlowNode) => ({
       ...n,
       data: { ...n.data, highlighted: false, dimmed: false },
     }))
-    flowEdges.value = (res?.edges || []).map((e: FlowEdge) => ({
-      ...e,
-      style: {},
-    }))
+    flowEdges.value = (res?.edges || []).map((e: FlowEdge) => ({ ...e, style: {} }))
     graphStats.value = res?.stats || { total_nodes: 0, total_edges: 0, upstream_depth: 0, downstream_depth: 0 }
   } catch {
     flowNodes.value = []
@@ -164,56 +206,124 @@ async function handleRefresh() {
   refreshing.value = true
   try {
     const res: any = await refreshLineage()
-    Message.success(`血缘刷新完成：${res.edges_created} 条关系，耗时 ${res.duration_ms}ms`)
-    // 重新加载组件列表（可能有新上线的组件）
-    await loadEntities()
+    Message.success(`表级血缘刷新完成：${res.edges_created} 条关系，耗时 ${res.duration_ms}ms`)
+    // 触发字段血缘前台刷新（同步等待结果）
+    try {
+      const cstats = await refreshColumnLineage()
+      Message.success(`字段血缘：sync ${cstats.sync_task} + sql ${cstats.component_sql} + datax ${cstats.component_datax}（失败 ${cstats.failed}）`)
+    } catch {
+      Message.warning('字段血缘刷新失败，但表级血缘已更新')
+    }
+    await Promise.all([loadEntities(), loadFailureCount()])
     if (entityId.value) await handleQuery()
   } catch { /* axios 拦截器会提示 */ }
   refreshing.value = false
 }
 
-// 全链路高亮
+function _tableNameFromNode(nodeId: string): string {
+  // node.id 形如 'table::ods_user'
+  return nodeId.startsWith('table::') ? nodeId.slice(7) : nodeId
+}
+
+async function onSelectColumn(payload: { table: string; column: string }) {
+  const table = payload.table.toLowerCase()
+  const column = payload.column.toLowerCase()
+  selectedColumn.value = { table, column }
+
+  try {
+    const graph = await getColumnLineageGraph(table, column, { depth: 3, direction: 'both' })
+    const tables = new Set<string>()
+    for (const n of graph.nodes) tables.add(n.table)
+    const edgeKeys = new Set<string>()
+    for (const e of graph.edges) {
+      const sn = graph.nodes.find(n => n.id === e.source)
+      const tn = graph.nodes.find(n => n.id === e.target)
+      if (sn && tn) edgeKeys.add(`${sn.table}|${tn.table}`)
+    }
+    columnPathTables.value = tables
+    columnPathEdgeKeys.value = edgeKeys
+    _applyColumnView()
+  } catch (e) {
+    Message.error('获取字段血缘失败')
+    exitColumnView()
+  }
+}
+
+function _applyColumnView() {
+  const col = selectedColumn.value
+  if (!col) return
+  flowNodes.value = flowNodes.value.map(n => {
+    const tname = _tableNameFromNode(n.id)
+    const inPath = columnPathTables.value.has(tname)
+    return {
+      ...n,
+      data: {
+        ...n.data,
+        selectedColumn: tname === col.table ? col.column : '',
+        inColumnPath: inPath,
+      },
+      style: inPath ? {} : { opacity: 0.3 },
+    }
+  })
+  flowEdges.value = flowEdges.value.map(e => {
+    const srcTable = _tableNameFromNode(e.source)
+    const tgtTable = _tableNameFromNode(e.target)
+    const inPath = columnPathEdgeKeys.value.has(`${srcTable}|${tgtTable}`)
+    return {
+      ...e,
+      animated: inPath,
+      style: inPath
+        ? { stroke: 'var(--color-primary)', strokeWidth: 2 }
+        : { opacity: 0.15 },
+    }
+  })
+}
+
+function exitColumnView() {
+  if (!selectedColumn.value) return
+  selectedColumn.value = null
+  columnPathTables.value = new Set()
+  columnPathEdgeKeys.value = new Set()
+  flowNodes.value = flowNodes.value.map(n => ({
+    ...n,
+    data: { ...n.data, selectedColumn: '', inColumnPath: false, highlighted: false, dimmed: false },
+    style: {},
+  }))
+  flowEdges.value = flowEdges.value.map(e => ({ ...e, animated: false, style: {} }))
+}
+
 function onNodeClick({ node }: { node: FlowNode }) {
+  if (isFieldView.value) return
   const nodeId = node.id
   const reachable = new Set<string>()
   reachable.add(nodeId)
-
-  // BFS 上游
   const upQueue = [nodeId]
   while (upQueue.length) {
     const cur = upQueue.shift()!
     for (const e of flowEdges.value) {
       if (e.target === cur && !reachable.has(e.source)) {
-        reachable.add(e.source)
-        upQueue.push(e.source)
+        reachable.add(e.source); upQueue.push(e.source)
       }
     }
   }
-  // BFS 下游
   const downQueue = [nodeId]
   while (downQueue.length) {
     const cur = downQueue.shift()!
     for (const e of flowEdges.value) {
       if (e.source === cur && !reachable.has(e.target)) {
-        reachable.add(e.target)
-        downQueue.push(e.target)
+        reachable.add(e.target); downQueue.push(e.target)
       }
     }
   }
-
   highlightedNodes.value = reachable
-
   flowNodes.value = flowNodes.value.map(n => ({
     ...n,
     data: { ...n.data, highlighted: reachable.has(n.id), dimmed: !reachable.has(n.id) },
     style: reachable.has(n.id) ? {} : { opacity: 0.3 },
   }))
-
   const reachableEdges = new Set<string>()
   for (const e of flowEdges.value) {
-    if (reachable.has(e.source) && reachable.has(e.target)) {
-      reachableEdges.add(e.id)
-    }
+    if (reachable.has(e.source) && reachable.has(e.target)) reachableEdges.add(e.id)
   }
   flowEdges.value = flowEdges.value.map(e => ({
     ...e,
@@ -225,6 +335,7 @@ function onNodeClick({ node }: { node: FlowNode }) {
 }
 
 function clearHighlight() {
+  if (isFieldView.value) return
   if (!highlightedNodes.value.size) return
   highlightedNodes.value = new Set()
   flowNodes.value = flowNodes.value.map(n => ({
@@ -232,15 +343,51 @@ function clearHighlight() {
     data: { ...n.data, highlighted: false, dimmed: false },
     style: {},
   }))
-  flowEdges.value = flowEdges.value.map(e => ({
-    ...e,
-    animated: false,
-    style: {},
-  }))
+  flowEdges.value = flowEdges.value.map(e => ({ ...e, animated: false, style: {} }))
 }
 
-onMounted(() => {
-  loadEntities()
+function openManual() { manualModal.value = true }
+function onManualCreated() {
+  manualModal.value = false
+  Message.success('已添加手工补登字段血缘')
+  if (entityId.value) handleQuery()
+}
+
+const route = useRoute()
+
+async function tryConsumeFocusQuery() {
+  const focus = route.query.focus
+  if (typeof focus !== 'string' || !focus.includes('.')) return
+  const [tableRaw, ...rest] = focus.split('.')
+  const colRaw = rest.join('.')
+  const table = tableRaw.toLowerCase()
+  const column = colRaw.toLowerCase()
+  if (!table || !column) return
+
+  // 找一个包含该表的组件作为入口（按图含 table 节点匹配）
+  for (const e of entities.value) {
+    try {
+      const res: any = await getLineageGraph('component', String(e.id), { depth: 2 })
+      const nodes = res?.nodes || []
+      const hit = nodes.some((n: any) => {
+        const t = (n.data?.tableName || n.id || '').toString().toLowerCase()
+        return t === table || t.endsWith('::' + table)
+      })
+      if (hit) {
+        entityId.value = String(e.id)
+        await handleQuery()
+        await onSelectColumn({ table, column })
+        return
+      }
+    } catch { /* try next entity */ }
+  }
+  Message.warning(`未找到包含 ${table}.${column} 的组件，请手动选择 SQL 组件`)
+}
+
+onMounted(async () => {
+  await loadEntities()
+  loadFailureCount()
+  await tryConsumeFocusQuery()
 })
 </script>
 
@@ -280,6 +427,13 @@ onMounted(() => {
 .text-muted { color: var(--color-text-tertiary); }
 .empty-state { padding: var(--space-10) 0; text-align: center; }
 .empty-state p { margin: var(--space-2) 0; }
+
+.field-view-tag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
 </style>
 
 <style>

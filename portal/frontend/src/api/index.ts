@@ -106,6 +106,60 @@ export const getLineageGraph = (
 ) => api.get(`/metadata/lineage/${entityType}/${entityId}`, { params })
 export const refreshLineage = () => api.post('/metadata/lineage/refresh')
 
+// Column Lineage (字段级血缘) — 强类型签名，禁止 const { data } = await
+export interface ColumnLineageNode { id: string; table: string; column: string }
+export interface ColumnLineageEdge {
+  id: string; source: string; target: string
+  transform_type?: string; transform_expr?: string | null
+  entity_type?: string; entity_name?: string | null; parse_type?: string
+}
+export interface ColumnLineageGraph {
+  center: { table: string; column: string }
+  nodes: ColumnLineageNode[]
+  edges: ColumnLineageEdge[]
+  stats: { total_nodes: number; total_edges: number }
+}
+export interface ColumnParseFailureItem {
+  id: number; entity_type: string; entity_id: number; entity_name?: string
+  sql_snippet?: string; error_msg?: string; created_at?: string
+}
+export interface ManualColumnLineageIn {
+  source_table: string; source_column: string
+  target_table: string; target_column: string
+  transform_type?: 'identity' | 'expression' | 'aggregate' | 'join'
+  transform_expr?: string | null
+  source_ds_id?: number | null; target_ds_id?: number | null
+}
+
+export const refreshColumnLineage = (): Promise<{
+  sync_task: number; component_sql: number; component_datax: number
+  failed: number; manual_kept: number; duration_ms: number
+}> => api.post('/metadata/lineage/refresh-columns') as any
+
+export const getColumnsWithLineage = (table: string): Promise<{
+  table: string; columns_with_lineage: string[]
+}> => api.get('/metadata/lineage/columns', { params: { table } }) as any
+
+export const getColumnLineageGraph = (
+  table: string, column: string,
+  params?: { direction?: 'both' | 'upstream' | 'downstream'; depth?: number }
+): Promise<ColumnLineageGraph> =>
+  api.get(`/metadata/lineage/columns/${encodeURIComponent(table)}/${encodeURIComponent(column)}`,
+    { params }) as any
+
+export const getColumnParseFailures = (params?: {
+  page?: number; page_size?: number
+}): Promise<{ total: number; items: ColumnParseFailureItem[] }> =>
+  api.get('/metadata/lineage/parse-failures', { params }) as any
+
+export const createManualColumnLineage = (
+  payload: ManualColumnLineageIn
+): Promise<{ id: number }> =>
+  api.post('/metadata/lineage/manual', payload) as any
+
+export const deleteManualColumnLineage = (id: number): Promise<{ ok: boolean }> =>
+  api.delete(`/metadata/lineage/manual/${id}`) as any
+
 // Projects (同步任务分组)
 export const getProjects = (params?: any) => api.get('/projects', { params })
 export const getProject = (id: number) => api.get(`/projects/${id}`)

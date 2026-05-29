@@ -42,6 +42,7 @@ import app.models.project  # noqa: F401
 import app.models.user  # noqa: F401
 import app.models.backfill  # noqa: F401
 import app.models.quality  # noqa: F401
+import app.models.column_lineage  # noqa: F401
 try:
     import app.models.role  # noqa: F401
 except ImportError:

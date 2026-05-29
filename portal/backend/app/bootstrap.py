@@ -40,6 +40,7 @@ _BUILTIN_PERMISSIONS = [
     ("monitor:write",     "监控规则编辑",   "monitor",    "write"),
     ("quality:read",      "数据质量查看",   "quality",    "read"),
     ("quality:write",     "数据质量编辑",   "quality",    "write"),
+    ("lineage:write",     "血缘编辑/手工补登","lineage",   "write"),
 ]
 
 _BUILTIN_ROLES = {
@@ -58,6 +59,7 @@ _BUILTIN_ROLES = {
             "sync:read", "sync:write",
             "metadata:read", "metadata:write", "monitor:read", "monitor:write",
             "quality:read", "quality:write",
+            "lineage:write",
         ],
     },
     "analyst": {
@@ -266,6 +268,7 @@ def bootstrap():
     import app.models.sys_config  # noqa: F401
     import app.models.sys_notify_channel  # noqa: F401
     import app.models.lineage  # noqa: F401
+    import app.models.column_lineage  # noqa: F401
     import app.models.quality  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

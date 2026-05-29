@@ -23,6 +23,7 @@ def run_all_migrations():
     _migrate_backfill_tables()
     _migrate_backfill_ds_columns()
     _migrate_quality_tables()
+    _migrate_column_lineage_tables()
 
 
 def _migrate_backfill_tables():
@@ -492,6 +493,59 @@ def _migrate_quality_tables():
                     INDEX idx_qcr_rule_date (rule_id, check_date),
                     INDEX idx_qcr_date (check_date),
                     UNIQUE KEY uk_rule_date (rule_id, check_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
+
+
+def _migrate_column_lineage_tables():
+    """字段级血缘两表（幂等）。失败不影响表级 lineage。"""
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT TABLE_NAME FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN "
+            "('column_lineage','column_parse_failure')"
+        )).fetchall()
+        existing = {r[0] for r in rows}
+
+        if 'column_lineage' not in existing:
+            conn.execute(text("""
+                CREATE TABLE column_lineage (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    source_table VARCHAR(256) NOT NULL,
+                    source_column VARCHAR(256) NOT NULL,
+                    target_table VARCHAR(256) NOT NULL,
+                    target_column VARCHAR(256) NOT NULL,
+                    source_ds_id BIGINT NULL,
+                    target_ds_id BIGINT NULL,
+                    entity_type VARCHAR(32) NOT NULL COMMENT 'sync_task/component/manual',
+                    entity_id BIGINT NULL,
+                    entity_name VARCHAR(255) NULL,
+                    transform_type VARCHAR(32) NULL COMMENT 'identity/expression/aggregate/join',
+                    transform_expr TEXT NULL,
+                    parse_type VARCHAR(32) NULL COMMENT 'datax/sqlglot/regex/manual',
+                    parse_status VARCHAR(16) DEFAULT 'ok',
+                    parse_error TEXT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    created_by BIGINT NULL,
+                    INDEX idx_col_lineage_source (source_table, source_column),
+                    INDEX idx_col_lineage_target (target_table, target_column),
+                    INDEX idx_col_lineage_entity (entity_type, entity_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """))
+            conn.commit()
+
+        if 'column_parse_failure' not in existing:
+            conn.execute(text("""
+                CREATE TABLE column_parse_failure (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    entity_type VARCHAR(32) NOT NULL,
+                    entity_id BIGINT NOT NULL,
+                    entity_name VARCHAR(255) NULL,
+                    sql_snippet TEXT NULL,
+                    error_msg TEXT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_col_parse_fail_entity (entity_type, entity_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """))
             conn.commit()
