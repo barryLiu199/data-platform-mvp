@@ -384,3 +384,53 @@ grep -rE ":is=['\"]\?icon-" portal/frontend/src/   # 字符串动态图标
 
 **关联**：[ARCHITECTURE.md] 前端缺少 API 调用规范文档 + 缺少前端集成/E2E 覆盖新页面
 
+---
+
+## [2026-05-29] sqlglot.lineage 叶子节点 expression 是 Table 不是 Column
+
+**现象**：阶段三B 字段级血缘上线后，`refresh_column_lineage` 返回 `component_sql=0`，但目标 SQL 明明是标准 `INSERT INTO ... SELECT`，单元测试也复现。
+
+**根因**：`sqlglot.lineage(col_name, sql)` 返回的 Node 树叶子节点，`expression` 字段类型是 `exp.Table`（数据来源表），不是 `exp.Column`。最初实现按 `isinstance(leaf.expression, exp.Column)` 过滤，导致**全部叶子被跳过**，最终输出 0 条边。
+
+**正确做法**：
+
+```python
+# 错误：会全部跳过
+for leaf in leaves:
+    if not isinstance(leaf.expression, exp.Column):
+        continue
+    src_tbl = leaf.expression.table
+    src_col = leaf.expression.name
+
+# 正确：用 leaf.name（"table.column" 字符串）+ Column 兜底
+for leaf in leaves:
+    src_tbl, src_col = "", ""
+    if isinstance(leaf.expression, exp.Column):
+        src_tbl = leaf.expression.table
+        src_col = leaf.expression.name
+    if not src_col and "." in (leaf.name or ""):
+        t, c = leaf.name.rsplit(".", 1)
+        src_tbl = src_tbl or t
+        src_col = c
+```
+
+**附带踩坑**：
+
+1. **裸 SELECT + default_target_table**：parser 原本只处理 `Insert`/`Create`，组件指定了 `target_table` 字段+裸 `SELECT` 时全部丢弃。需补 `Select + default_target_table` 分支。
+2. **SQLite + BigInteger PK 不自动递增**：测试 fixture 构造 `SyncTask(...)` 不显式传 `id`，`sqlite3.IntegrityError: NOT NULL constraint failed: sync_task.id`。MySQL 没事是因为 BigInteger AUTO_INCREMENT 生效。测试统一显式传 `id=`。
+3. **rsync 单文件路径要写完整**：`rsync src.py user@host:/dir/` 会把 `src.py` 直接落在 `/dir/`，不保留子目录结构。多次执行后在 `portal/backend/` 顶层留下 `column_lineage_service.py` + `test_column_lineage_service.py` 副本，pytest 把这俩当根目录测试模块收集，与 `tests/` 下版本同名冲突 → "fixture 'db_session' not found"。**正确做法**：rsync 单文件时目标路径写到具体文件名，或用目录形式 `rsync -az src/ host:/dst/`。
+
+**code review checklist**：
+
+```bash
+# 检查源码根目录是否有不该存在的 .py（应该只有 main.py）
+ls portal/backend/*.py
+
+# sqlglot 叶子节点处理是否使用 leaf.name 解析
+grep -A3 "for leaf in leaves" portal/backend/app/core/column_lineage_service.py
+```
+
+**涉及文件**：`portal/backend/app/core/column_lineage_service.py`、`portal/backend/tests/test_column_lineage_service.py`
+
+**关联**：阶段三B 字段血缘上线 commit 8ad225e
+
