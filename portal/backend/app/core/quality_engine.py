@@ -331,6 +331,17 @@ def execute_rule(rule_id: int, triggered_by: str = "manual", db: Session = None)
         start_ms = time.time()
         config = rule.config or {}
 
+        # Auto-inject rule metadata into config for generators
+        if rule.column_name and "field" not in config:
+            config["field"] = rule.column_name
+        if rule.column_name and "fields" not in config:
+            config["fields"] = rule.column_name
+        if rule.table_name and "table" not in config:
+            config["table"] = rule.table_name
+        # Map common aliases: threshold → threshold_pct for null_rate
+        if "threshold" in config and "threshold_pct" not in config:
+            config["threshold_pct"] = config["threshold"]
+
         # Cross-table is a special path
         if rule.template_code == "cross_table_check":
             result = _execute_cross_table(rule, config, db)
@@ -446,6 +457,16 @@ def preview_sql(rule_id: int, db: Session) -> Dict[str, Any]:
         return {"error": f"未知模板: {rule.template_code}"}
 
     config = rule.config or {}
+    # Auto-inject rule metadata into config for generators
+    if rule.column_name and "field" not in config:
+        config["field"] = rule.column_name
+    if rule.column_name and "fields" not in config:
+        config["fields"] = rule.column_name
+    if rule.table_name and "table" not in config:
+        config["table"] = rule.table_name
+    if "threshold" in config and "threshold_pct" not in config:
+        config["threshold_pct"] = config["threshold"]
+
     if rule.template_code == "cross_table_check":
         join_keys = config.get("join_keys", [])
         compare_fields = config.get("compare_fields", [])

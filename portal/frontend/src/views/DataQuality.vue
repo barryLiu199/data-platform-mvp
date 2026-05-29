@@ -197,7 +197,7 @@
                   <a-option value="=">=</a-option>
                   <a-option value="!=">!=</a-option>
                   <a-option value=">">></a-option>
-                  <a-option value=">=">>>=</a-option>
+                  <a-option value=">=">>=</a-option>
                   <a-option value="<"><</a-option>
                   <a-option value="<="><=</a-option>
                 </a-select>
@@ -241,6 +241,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
+import { IconPlayArrow, IconPlus, IconDelete, IconEdit, IconLeft, IconPause } from '@arco-design/web-vue/es/icon'
 import PageHeader from '../components/PageHeader.vue'
 import {
   getQualityTemplates, getQualityRules, createQualityRule, updateQualityRule,
@@ -421,10 +422,10 @@ async function handleBatchExecute() {
 onMounted(async () => {
   const [tplRes, dsRes] = await Promise.all([
     getQualityTemplates(),
-    getDatasources(),
+    getDatasources({ page: 1, page_size: 100 }),
   ])
   templates.value = tplRes.data
-  datasources.value = dsRes.data
+  datasources.value = (dsRes.data?.items || dsRes.data || [])
   await Promise.all([loadRules(), loadStats()])
 })
 </script>

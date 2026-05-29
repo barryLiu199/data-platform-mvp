@@ -201,7 +201,7 @@ import {
   IconCalendar, IconFile, IconApps, IconRelation,
   IconComputer, IconNotification, IconDown, IconUser, IconExport,
   IconSettings, IconHistory, IconCode, IconBranch,
-  IconList, IconCodeBlock, IconIdcard, IconLock,
+  IconList, IconCodeBlock, IconIdcard, IconLock, IconCheckCircle,
 } from '@arco-design/web-vue/es/icon'
 
 const router = useRouter()

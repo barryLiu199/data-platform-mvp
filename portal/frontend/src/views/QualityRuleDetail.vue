@@ -78,6 +78,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
+import { IconPlayArrow } from '@arco-design/web-vue/es/icon'
 import PageHeader from '../components/PageHeader.vue'
 import { getQualityRule, getQualityTrend, executeQualityRule, getQualityTemplates } from '../api'
 
