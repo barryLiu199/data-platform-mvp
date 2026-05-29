@@ -120,6 +120,34 @@
 
 ---
 
+### [中] 前端 API 调用约定无文档化 + 新页面无集成测试
+
+**问题**：`portal/frontend/src/api/index.ts` 的 axios 实例在响应拦截器里做了 `response => response.data`，所有调用方应该直接拿返回值（不能 `const { data } = await getXxx()`，也不能 `res.data`）。但这个隐式约定没写在任何文档里。阶段三A 数据质量页（`DataQuality.vue` / `QualityRuleDetail.vue` / `DataAssets.vue`）一次提交里 8 处全部按"未拦截"模式写，导致页面进入即崩，反复修了 3 次才定位。
+
+后端有 51 个测试覆盖质量引擎，但前端只跑了 vue-tsc 类型检查 — 类型层看不出 `.data` 是不是 undefined（拦截器返回类型是 `Promise<any>`），运行时才暴露。前端 Playwright 冒烟只覆盖 login，新页面零集成覆盖。
+
+**风险**：
+- 新页面/新函数大概率重复同一类错误，每次都要部署后用户反馈才发现
+- AI/新人 copy 老代码时易混入"原生 fetch"模式（项目残留），双模式共存是定时炸弹
+- 类型层不报错让人误以为安全（axios 拦截器返回 `any`）
+
+**建议方案**：
+
+1. **API 约定写入 `portal/frontend/CONTRIBUTING.md` 或 `src/api/README.md`**：
+   - "所有 `api/index.ts` 导出的函数已拦截 `response.data`，调用方直接接返回值"
+   - 给出对/错示例
+   - 列出分页接口（返回 `{total, items}`）和非分页接口的差异
+2. **lint 规则封堵**：自定义 ESLint 规则或 grep pre-commit hook
+   ```bash
+   grep -rnE "const \{ data \} = await (get|post|put|delete|patch)[A-Z]" src/ && exit 1
+   ```
+3. **提升 Playwright 覆盖**：每个新增主页面（DataQuality、FieldAssets、Lineage 等）至少一条 "进入页面 → 列表加载成功 → 截图无空白" 的冒烟用例。`playwright test` 走真实后端，能直接捕获本类 bug。
+4. **强类型化 API 函数返回**：把 `getQualityRules` 等的 `Promise<any>` 收紧为 `Promise<{total: number; items: QualityRule[]}>`。一旦返回类型不是 `{data: any}`，`const { data } = await` 在类型层就直接报错。
+
+**状态**：未解决（建议作为 P1 紧接阶段三B 处理，避免相同 bug 在字段血缘页重演）。
+
+---
+
 ## 已解决 ✅
 
 - ✅ **后端生产模式化(P0)** — Dockerfile 切 gunicorn + UvicornWorker(2026-05-22)

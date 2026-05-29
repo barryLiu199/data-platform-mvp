@@ -255,3 +255,132 @@ print('code:', r.get('code'), 'project_code:', r.get('data',{}).get('code'))
 
 **涉及文件**：`portal/backend/app/api/sync_tasks.py`、`portal/frontend/src/components/SyncTaskCanvas.vue`
 
+---
+
+## [2026-05-29] 数据质量页连环空白 — 同一页 3 个独立 bug 叠加
+
+**现象**：阶段三A 数据质量页上线后，进入页面连续踩坑：
+1. 第一次：菜单图标缺失 + 整页空白
+2. 第二次（5e74205 修复后）：图标好了，菜单也对，但页面仍空白后一闪而过
+3. 第三次：彻底空白
+
+每次都以为修好了，第二天用户进去又是空白。
+
+**3 个 bug 叠加（按发现顺序）**：
+
+### Bug 1 — Arco 图标按需引入下用了字符串动态组件
+
+```vue
+<!-- ❌ 错误 -->
+<template #icon><component :is="record.enabled ? 'icon-pause' : 'icon-play-arrow'" /></template>
+```
+
+Arco Vue 的图标走 `@arco-design/web-vue/es/icon` 按需引入，**不在全局组件注册表里**。`<component :is="字符串">` 走 `resolveDynamicComponent`，运行时按字符串名查全局注册表 → 找不到 → 抛错 → 整组件渲染崩溃。
+
+更隐蔽的是：vite tree-shaking 看到 IconPause/IconPlayArrow 没有 import 引用就把它们打掉，导致 bundle 实际只有 1 个图标，但人眼看模板以为 6 个都在。
+
+**正确做法**：
+
+```vue
+<!-- ✅ 正确：v-if/v-else 分支 -->
+<template #icon>
+  <icon-pause v-if="record.enabled" />
+  <icon-play-arrow v-else />
+</template>
+```
+
+或三元传组件引用（不是字符串）：
+
+```vue
+<template #icon><component :is="record.enabled ? IconPause : IconPlayArrow" /></template>
+```
+
+需要 script 真的 `import { IconPause, IconPlayArrow }`。
+
+### Bug 2 — 误用 axios 响应解构（最隐蔽，导致页面一闪而过）
+
+`api/index.ts` 早就在响应拦截器里把 `.data` 剥掉了：
+
+```ts
+api.interceptors.response.use(
+  (response) => response.data,    // <-- 已经返回 data 了
+  (error) => { ... }
+)
+```
+
+也就是说所有 `await getXxx()` **直接返回业务数据**，不是 axios 响应对象。
+
+但 DataQuality.vue / QualityRuleDetail.vue / DataAssets.vue 写成：
+
+```ts
+// ❌ 错误：data 永远是 undefined
+const { data } = await getQualityRules({...})
+rules.value = data.items   // TypeError: Cannot read properties of undefined
+
+// ❌ 错误：tplRes 已经是 array，tplRes.data 是 undefined
+const tplRes = await getQualityTemplates()
+templates.value = tplRes.data
+```
+
+`undefined.items` 抛错触发 Vue 渲染失败 → 组件被销毁 → onMounted 又跑 → 又抛错。所以表现是"空白—闪过—空白"循环重渲染（nginx access log 看到每 1-2 秒一次刷新）。
+
+**正确做法**：
+
+```ts
+// ✅ 直接接返回值，不解构
+const data: any = await getQualityRules({...})
+rules.value = data.items
+```
+
+```ts
+// ✅ tplRes 本身就是数据
+const tplRes: any = await getQualityTemplates()
+templates.value = tplRes
+```
+
+### Bug 3 — getDatasources 的 {items} 包装层
+
+`getDatasources({page, page_size})` 因为分页所以返回 `{total, items}`，但代码当成 array 用：
+
+```ts
+// ❌ 错误：dsRes 是 {items: [...]}，不是数组
+datasources.value = dsRes
+```
+
+**正确做法**：
+
+```ts
+datasources.value = (dsRes?.items || dsRes || [])  // 兼容老接口
+```
+
+**根因总结**：
+
+新页面"复制粘贴自其他页面后没看 API 拦截器约定"。项目存在两类前端 fetch 模式：
+- 老页面：用原生 fetch，自己解 JSON，写 `const { data } = await fetch().then(r=>r.json())`
+- 现代页面：用 `api/index.ts` 的 axios 实例，拦截器已剥 `.data`
+
+混用导致新人/AI 写代码时把两种模式串了。同一个 commit 里 8 处错的代码居然过了 51 个后端测试 + 没有前端集成测试，所以部署后才暴露。
+
+**正确做法（前端 fetch 规范）**：
+
+| 情景 | 写法 |
+|------|------|
+| 调用 `api/index.ts` 导出的函数 | `const data: any = await getXxx()` 直接拿值 |
+| 不要写 | `const { data } = await getXxx()` ❌ |
+| 不要写 | `someRes.data` ❌（拦截器已剥过一层） |
+| 分页接口 | 注意返回 `{total, items}`，需 `.items` |
+| 详情/列表接口 | 大多直接返回对象/数组 |
+
+**code review checklist**：
+
+```bash
+# 全仓搜索误用模式
+grep -rE "const \{ data \} = await get" portal/frontend/src/
+grep -rE "\.data\.items" portal/frontend/src/      # 拦截器后没有第二层 .data
+grep -rE ":is=['\"]\?icon-" portal/frontend/src/   # 字符串动态图标
+```
+
+**涉及文件**：`portal/frontend/src/views/DataQuality.vue`、`QualityRuleDetail.vue`、`DataAssets.vue`、`portal/frontend/src/api/index.ts`（响应拦截器约定）
+
+**关联**：[ARCHITECTURE.md] 前端缺少 API 调用规范文档 + 缺少前端集成/E2E 覆盖新页面
+

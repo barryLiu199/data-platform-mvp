@@ -521,7 +521,7 @@ import { TYPE_GROUPS_WITH_DATAX, type TreeNode } from '../composables/useFileTre
 import { Message } from '@arco-design/web-vue'
 import {
   IconPlus, IconPlayArrow, IconSave, IconUpload, IconDelete, IconCodeBlock, IconMore,
-  IconInfoCircle, IconSettings, IconThunderbolt, IconHistory, IconDownload,
+  IconInfoCircle, IconSettings, IconThunderbolt, IconHistory, IconDownload, IconLock,
 } from '@arco-design/web-vue/es/icon'
 import CodeEditor from '../components/CodeEditor.vue'
 import ContextMenu from '../components/ContextMenu.vue'

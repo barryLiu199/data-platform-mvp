@@ -103,12 +103,12 @@ function severityLabel(s: string) {
 }
 
 async function loadRule() {
-  const { data } = await getQualityRule(ruleId)
+  const data: any = await getQualityRule(ruleId)
   rule.value = data
 }
 
 async function loadTrend() {
-  const { data } = await getQualityTrend({ rule_id: ruleId, days: 30 })
+  const data: any = await getQualityTrend({ rule_id: ruleId, days: 30 })
   trend.value = data
 }
 
@@ -124,8 +124,8 @@ async function handleExecute() {
 }
 
 onMounted(async () => {
-  const tplRes = await getQualityTemplates()
-  templates.value = tplRes.data
+  const tplRes: any = await getQualityTemplates()
+  templates.value = tplRes
   await Promise.all([loadRule(), loadTrend()])
 })
 </script>

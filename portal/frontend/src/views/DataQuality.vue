@@ -97,7 +97,10 @@
                   <template #icon><icon-play-arrow /></template>
                 </a-button>
                 <a-button size="mini" type="text" @click="handleToggle(record)">
-                  <template #icon><component :is="record.enabled ? 'icon-pause' : 'icon-play-arrow'" /></template>
+                  <template #icon>
+                    <icon-pause v-if="record.enabled" />
+                    <icon-play-arrow v-else />
+                  </template>
                 </a-button>
                 <a-button size="mini" type="text" @click="openEdit(record)">
                   <template #icon><icon-edit /></template>
@@ -341,7 +344,7 @@ function resetForm() {
 async function loadRules() {
   loading.value = true
   try {
-    const { data } = await getQualityRules({
+    const data: any = await getQualityRules({
       page: pagination.current,
       page_size: pagination.pageSize,
       ...filters,
@@ -354,7 +357,7 @@ async function loadRules() {
 }
 
 async function loadStats() {
-  const { data } = await getQualityStats()
+  const data: any = await getQualityStats()
   stats.value = data
 }
 
@@ -399,7 +402,7 @@ async function handleDelete(record: any) {
 }
 
 async function handleToggle(record: any) {
-  const { data } = await toggleQualityRule(record.id)
+  const data: any = await toggleQualityRule(record.id)
   record.enabled = data.enabled
   Message.success(data.enabled ? '已启用' : '已禁用')
 }
@@ -420,12 +423,12 @@ async function handleBatchExecute() {
 }
 
 onMounted(async () => {
-  const [tplRes, dsRes] = await Promise.all([
+  const [tplRes, dsRes]: any[] = await Promise.all([
     getQualityTemplates(),
     getDatasources({ page: 1, page_size: 100 }),
   ])
-  templates.value = tplRes.data
-  datasources.value = (dsRes.data?.items || dsRes.data || [])
+  templates.value = tplRes
+  datasources.value = (dsRes?.items || dsRes || [])
   await Promise.all([loadRules(), loadStats()])
 })
 </script>
