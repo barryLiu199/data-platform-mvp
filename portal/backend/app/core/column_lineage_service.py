@@ -184,6 +184,9 @@ def _parse_sql_columns(
             inner = stmt.args.get("expression")
             if isinstance(inner, exp.Select):
                 select_node = inner
+        elif isinstance(stmt, exp.Select) and default_target_table:
+            # 裸 SELECT 且调用方提供了默认目标表（例如组件指定了 target_table 字段）
+            select_node = stmt
 
         if select_node is None:
             continue
@@ -226,11 +229,25 @@ def _parse_sql_columns(
                     stack.extend(n.downstream)
 
             for leaf in leaves:
+                # sqlglot.lineage 叶子节点 name 形如 "table.column"
+                # expression 多为 Table（不是 Column）—— 走名称解析
+                src_tbl = ""
+                src_col = ""
                 col_expr = leaf.expression
-                if not isinstance(col_expr, exp.Column):
-                    continue
-                src_tbl = _norm(col_expr.table) or _norm(getattr(leaf, "source_name", "") or "")
-                src_col = _norm(col_expr.name)
+                if isinstance(col_expr, exp.Column):
+                    src_tbl = _norm(col_expr.table)
+                    src_col = _norm(col_expr.name)
+                if not src_col:
+                    leaf_name = (leaf.name or "").strip()
+                    if "." in leaf_name:
+                        t, c = leaf_name.rsplit(".", 1)
+                        src_tbl = src_tbl or _norm(t)
+                        src_col = _norm(c)
+                    elif leaf_name:
+                        src_col = _norm(leaf_name)
+                # 兜底：source_name
+                if not src_tbl:
+                    src_tbl = _norm(getattr(leaf, "source_name", "") or "")
                 if not src_tbl or not src_col:
                     continue
                 edges.append({

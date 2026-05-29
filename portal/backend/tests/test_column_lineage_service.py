@@ -206,6 +206,7 @@ class TestRefreshColumnLineage:
     def test_idempotent_refresh(self, db_session, clean_tables):
         # 准备一个 sync_task
         task = SyncTask(
+            id=901,
             name="t1", source_id=1, target_id=2,
             source_table="ods_a", target_table="dw_a",
             field_mapping=json.dumps([
@@ -248,10 +249,12 @@ class TestRefreshColumnLineage:
     def test_failure_isolation(self, db_session, clean_tables):
         # 两个组件：一个 SQL 解析正常，一个故意造解析错误
         good = Component(
+            id=801,
             name="good", type="sql", status="online",
             config_json={"sql": "INSERT INTO t1 SELECT a FROM s1", "datasource_id": 1},
         )
         bad = Component(
+            id=802,
             name="bad", type="sql", status="online",
             config_json={"sql": "this is not valid sql at all !!!", "datasource_id": 1},
         )
