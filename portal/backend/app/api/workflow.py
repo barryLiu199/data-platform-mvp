@@ -37,6 +37,11 @@ class DagNode(BaseModel):
     name: Optional[str] = None
     position: Dict[str, float]  # {x, y}
     skip: bool = False
+    fail_strategy: Optional[str] = None  # end(默认) | skip
+    retry_times: Optional[int] = Field(default=None, ge=0, le=10)
+    retry_interval: Optional[int] = Field(default=None, ge=1, le=60)
+    timeout: Optional[int] = Field(default=None, ge=0, le=1440)
+    priority: Optional[str] = None  # HIGHEST/HIGH/MEDIUM/LOW/LOWEST
 
 class DagEdge(BaseModel):
     id: str

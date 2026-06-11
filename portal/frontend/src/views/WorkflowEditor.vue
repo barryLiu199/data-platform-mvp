@@ -10,7 +10,15 @@ import ScheduleModal from '../components/ScheduleModal.vue'
 import ComplementModal from '../components/BackfillCreateModal.vue'
 import { getWorkflow, createWorkflow, updateWorkflow, testWorkflow, publishWorkflow, offlineWorkflow, runWorkflow, getProjects, getWorkflowVersions, rollbackWorkflowVersion } from '../api'
 
-interface DagNode { id: string; component_id: number; type?: string; name: string; position: { x: number; y: number }; skip: boolean }
+interface DagNode {
+  id: string; component_id: number; type?: string; name: string
+  position: { x: number; y: number }; skip: boolean
+  fail_strategy?: 'end' | 'skip'
+  retry_times?: number
+  retry_interval?: number
+  timeout?: number
+  priority?: string
+}
 interface DagEdge { id: string; source: string; target: string }
 
 const route = useRoute()

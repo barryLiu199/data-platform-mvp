@@ -5,8 +5,17 @@ import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import DagCustomNode from './DagCustomNode.vue'
 import DagContextMenu from './DagContextMenu.vue'
+import NodeConfigModal, { type NodeConfig } from './NodeConfigModal.vue'
 
-interface DagNode { id: string; component_id: number; type?: string; name: string; position: { x: number; y: number }; skip: boolean }
+interface DagNode {
+  id: string; component_id: number; type?: string; name: string
+  position: { x: number; y: number }; skip: boolean
+  fail_strategy?: 'end' | 'skip'
+  retry_times?: number
+  retry_interval?: number
+  timeout?: number
+  priority?: string
+}
 interface DagEdge { id: string; source: string; target: string }
 
 const props = defineProps<{ nodes: DagNode[]; edges: DagEdge[] }>()
@@ -15,6 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const contextMenu = ref<InstanceType<typeof DagContextMenu>>()
+const configModal = ref<InstanceType<typeof NodeConfigModal>>()
 let nodeCounter = ref(0)
 
 const { onConnect, addEdges, onNodeDragStop, getNodes, getEdges, addNodes, removeNodes, removeEdges } = useVueFlow()
@@ -26,7 +36,14 @@ const flowEdges = ref<any[]>([])
 watch(() => [props.nodes, props.edges], () => {
   flowNodes.value = props.nodes.map(n => ({
     id: n.id, type: 'component-node', position: n.position,
-    data: { label: n.name, type: n.type || 'sql', skip: n.skip, component_id: n.component_id },
+    data: {
+      label: n.name, type: n.type || 'sql', skip: n.skip, component_id: n.component_id,
+      fail_strategy: n.fail_strategy || 'end',
+      retry_times: n.retry_times || 0,
+      retry_interval: n.retry_interval || 1,
+      timeout: n.timeout || 0,
+      priority: n.priority || 'MEDIUM',
+    },
   }))
   flowEdges.value = props.edges.map(e => ({
     id: e.id, source: e.source, target: e.target, animated: true,
@@ -62,7 +79,10 @@ function onDrop(event: DragEvent) {
   nodeCounter.value++
   const newNode = {
     id: `node-${Date.now()}`, type: 'component-node', position,
-    data: { label: comp.name, type: comp.type, skip: false, component_id: comp.id },
+    data: {
+      label: comp.name, type: comp.type, skip: false, component_id: comp.id,
+      fail_strategy: 'end', retry_times: 0, retry_interval: 1, timeout: 0, priority: 'MEDIUM',
+    },
   }
   flowNodes.value = [...flowNodes.value, newNode]
   emitUpdate()
@@ -74,6 +94,16 @@ function onDragOver(event: DragEvent) { event.preventDefault(); event.dataTransf
 function onNodeContextMenu(event: { event: MouseEvent; node: any }) {
   const skip = event.node.data?.skip || false
   contextMenu.value?.show(event.event, event.node.id, skip)
+}
+
+// 双击节点打开配置弹窗
+function onNodeDoubleClick(event: { event: MouseEvent; node: any }) {
+  configModal.value?.open(event.node.id, event.node.data || {})
+}
+
+function saveNodeConfig(id: string, cfg: NodeConfig) {
+  flowNodes.value = flowNodes.value.map(n => n.id === id ? { ...n, data: { ...n.data, ...cfg } } : n)
+  emitUpdate()
 }
 
 function skipNode(id: string) {
@@ -94,6 +124,11 @@ function emitUpdate() {
   const nodes = flowNodes.value.map((n: any) => ({
     id: n.id, component_id: n.data.component_id, name: n.data.label,
     type: n.data.type, position: n.position, skip: n.data.skip || false,
+    fail_strategy: n.data.fail_strategy || 'end',
+    retry_times: n.data.retry_times || 0,
+    retry_interval: n.data.retry_interval || 1,
+    timeout: n.data.timeout || 0,
+    priority: n.data.priority || 'MEDIUM',
   }))
   const edges = flowEdges.value.map((e: any) => ({ id: e.id, source: e.source, target: e.target }))
   emit('update', { nodes, edges })
@@ -130,14 +165,15 @@ defineExpose({ autoLayout })
 
 <template>
   <div class="dag-canvas" @drop="onDrop" @dragover="onDragOver">
-    <VueFlow v-model:nodes="flowNodes" v-model:edges="flowEdges" @node-context-menu="(onNodeContextMenu as any)" fit-view-on-init>
+    <VueFlow v-model:nodes="flowNodes" v-model:edges="flowEdges" @node-context-menu="(onNodeContextMenu as any)" @node-double-click="(onNodeDoubleClick as any)" fit-view-on-init>
       <template #node-component-node="nodeProps">
         <DagCustomNode :data="nodeProps.data" />
       </template>
       <Background />
       <Controls />
     </VueFlow>
-    <DagContextMenu ref="contextMenu" @skip="skipNode" @unskip="unskipNode" @delete="deleteNode" />
+    <DagContextMenu ref="contextMenu" @skip="skipNode" @unskip="unskipNode" @delete="deleteNode" @config="(id: string) => configModal?.open(id, flowNodes.find(n => n.id === id)?.data || {})" />
+    <NodeConfigModal ref="configModal" @save="saveNodeConfig" @delete="deleteNode" />
   </div>
 </template>
 

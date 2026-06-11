@@ -10,8 +10,15 @@ const props = defineProps<{
     type: string
     skip: boolean
     status?: string
+    fail_strategy?: string
+    retry_times?: number
+    timeout?: number
   }
 }>()
+
+const hasBadges = computed(() =>
+  props.data.fail_strategy === 'skip' || (props.data.retry_times || 0) > 0 || (props.data.timeout || 0) > 0
+)
 
 const typeGroup = computed(() => TYPE_GROUPS_WITH_DATAX.find(g => g.type === props.data.type))
 const typeColor = computed(() => typeGroup.value?.color ?? '#6b7280')
@@ -33,6 +40,11 @@ const typeLabel = computed(() => typeGroup.value?.label.split(' ')[0] ?? props.d
     <div class="dag-node__body">
       <span class="dag-node__label">{{ data.label }}</span>
       <span v-if="data.skip" class="dag-node__skip-badge">SKIP</span>
+    </div>
+    <div v-if="hasBadges" class="dag-node__badges">
+      <span v-if="data.fail_strategy === 'skip'" class="dag-node__badge dag-node__badge--warn">失败跳过</span>
+      <span v-if="(data.retry_times || 0) > 0" class="dag-node__badge">重试×{{ data.retry_times }}</span>
+      <span v-if="(data.timeout || 0) > 0" class="dag-node__badge">{{ data.timeout }}min</span>
     </div>
     <Handle type="source" :position="Position.Bottom" />
   </div>
@@ -65,4 +77,13 @@ const typeLabel = computed(() => typeGroup.value?.label.split(' ')[0] ?? props.d
   font-size: 10px; background: #ef4444; color: #fff;
   padding: 1px 4px; border-radius: 3px; font-weight: 600;
 }
+.dag-node__badges {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 0 10px 6px;
+}
+.dag-node__badge {
+  font-size: 10px; background: #eff6ff; color: #2563eb;
+  padding: 1px 5px; border-radius: 3px; font-weight: 500;
+}
+.dag-node__badge--warn { background: #fffbeb; color: #d97706; }
 </style>

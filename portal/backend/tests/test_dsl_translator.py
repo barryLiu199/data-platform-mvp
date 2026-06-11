@@ -253,3 +253,98 @@ def test_translate_workflow_dag_missing_component_raises():
     }
     with pytest.raises(ValueError, match="组件 99 不存在"):
         translate_workflow_dag(wf, components_by_id={}, task_codes=[1])
+
+
+# ---- 节点级配置覆盖（双击节点配置）----
+
+class TestNodeOverrides:
+    def test_retry_times_and_interval(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        td = translate_component_to_task(comp, 100, node_cfg={"retry_times": 3, "retry_interval": 5})
+        assert td["failRetryTimes"] == "3"
+        assert td["failRetryInterval"] == "5"
+
+    def test_retry_interval_min_one(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        td = translate_component_to_task(comp, 100, node_cfg={"retry_times": 2, "retry_interval": 0})
+        assert td["failRetryInterval"] == "1"
+
+    def test_timeout_minutes(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        td = translate_component_to_task(comp, 100, node_cfg={"timeout": 30})
+        assert td["timeoutFlag"] == "OPEN"
+        assert td["timeout"] == 30
+        assert td["timeoutNotifyStrategy"] == "FAILED"
+
+    def test_priority(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        td = translate_component_to_task(comp, 100, node_cfg={"priority": "high"})
+        assert td["taskPriority"] == "HIGH"
+
+    def test_invalid_priority_ignored(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        td = translate_component_to_task(comp, 100, node_cfg={"priority": "URGENT"})
+        assert td["taskPriority"] == "MEDIUM"
+
+    def test_fail_skip_shell_wraps_subshell(self):
+        comp = _comp("shell", {"script": "exit 1"})
+        td = translate_component_to_task(comp, 100, node_cfg={"fail_strategy": "skip"})
+        raw = td["taskParams"]["rawScript"]
+        assert raw.startswith("(")
+        assert "失败跳过" in raw
+        assert "|| echo" in raw
+
+    def test_fail_skip_python_wraps_try_except(self):
+        comp = _comp("python", {"script": "raise ValueError('x')"})
+        td = translate_component_to_task(comp, 100, node_cfg={"fail_strategy": "skip"})
+        raw = td["taskParams"]["rawScript"]
+        assert raw.startswith("import traceback")
+        assert "try:" in raw
+        assert "    raise ValueError('x')" in raw
+        assert "except Exception:" in raw
+
+    def test_fail_skip_disables_retry(self):
+        comp = _comp("shell", {"script": "exit 1"})
+        td = translate_component_to_task(comp, 100, node_cfg={"fail_strategy": "skip", "retry_times": 3})
+        assert td["failRetryTimes"] == "0"
+
+    def test_fail_end_default_unchanged(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        td_default = translate_component_to_task(comp, 100)
+        td_end = translate_component_to_task(comp, 100, node_cfg={"fail_strategy": "end"})
+        assert td_end["taskParams"]["rawScript"] == td_default["taskParams"]["rawScript"]
+        assert td_end["failRetryTimes"] == "0"
+
+    def test_no_node_cfg_no_change(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        td = translate_component_to_task(comp, 100, node_cfg=None)
+        assert td["failRetryTimes"] == "0"
+        assert td["timeoutFlag"] == "CLOSE"
+
+    def test_dag_passes_node_cfg(self):
+        comp = _comp("shell", {"script": "echo hi"})
+        comp_id = 7
+        wf = MagicMock()
+        wf.name = "wf"
+        wf.description = ""
+        wf.dag_json = {
+            "nodes": [{
+                "id": "n1", "component_id": comp_id, "name": "step1",
+                "position": {"x": 0, "y": 0}, "skip": False,
+                "fail_strategy": "skip", "retry_times": 0,
+            }],
+            "edges": [],
+        }
+        payload = translate_workflow_dag(wf, {comp_id: comp}, [900])
+        task_defs = json.loads(payload["taskDefinitionJson"])
+        assert "失败跳过" in task_defs[0]["taskParams"]["rawScript"]
+
+    def test_sql_shell_fail_skip(self):
+        ds = MagicMock()
+        ds.type = "mysql"
+        ds.host, ds.port, ds.username, ds.password, ds.database_name = "h", 3306, "u", "p", "db"
+        comp = _comp("sql", {"sql": "SELECT 1", "datasource_id": 1})
+        td = translate_component_to_task(
+            comp, 100, datasource_lookup={1: ds}, node_cfg={"fail_strategy": "skip"}
+        )
+        assert "失败跳过" in td["taskParams"]["rawScript"]

@@ -10,6 +10,7 @@ const emit = defineEmits<{
   (e: 'skip', id: string): void
   (e: 'unskip', id: string): void
   (e: 'delete', id: string): void
+  (e: 'config', id: string): void
 }>()
 
 function show(event: MouseEvent, id: string, skip: boolean) {
@@ -36,12 +37,21 @@ function deleteNode() {
   hide()
 }
 
+function openConfig() {
+  if (!nodeId.value) return
+  emit('config', nodeId.value)
+  hide()
+}
+
 defineExpose({ show })
 </script>
 
 <template>
   <Teleport to="body">
     <div v-if="visible" class="ctx-menu" :style="{ left: position.x + 'px', top: position.y + 'px' }">
+      <div class="ctx-menu__item" @click="openConfig">
+        节点配置
+      </div>
       <div class="ctx-menu__item" @click="toggleSkip">
         {{ isSkipped ? '取消跳过' : '跳过节点' }}
       </div>

@@ -89,12 +89,35 @@ def _build_sql_shell_script(portal_ds: Any, sql_text: str) -> str:
     return script
 
 
+def _wrap_shell_fail_skip(script: str) -> str:
+    """失败跳过：脚本包进子 shell，失败时打日志但整体退出码为 0，后续节点继续执行"""
+    return (
+        "(\n"
+        f"{script}\n"
+        ") || echo \"[Portal] 节点执行失败，但失败策略为「失败跳过」，继续执行后续节点 (exit=$?)\"\n"
+    )
+
+
+def _wrap_python_fail_skip(script: str) -> str:
+    """Python 版失败跳过：整段脚本包进 try/except"""
+    indented = "\n".join("    " + line for line in script.splitlines())
+    return (
+        "import traceback\n"
+        "try:\n"
+        f"{indented}\n"
+        "except Exception:\n"
+        "    traceback.print_exc()\n"
+        "    print('[Portal] 节点执行失败，但失败策略为「失败跳过」，继续执行后续节点')\n"
+    )
+
+
 def translate_component_to_task(
     component: Any,
     task_code: int,
     task_name: Optional[str] = None,
     datasource_lookup: Optional[Dict[int, Any]] = None,
     ds_datasource_id_map: Optional[Dict[int, int]] = None,
+    node_cfg: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """单个 Component → DS Task Definition JSON
 
@@ -103,6 +126,11 @@ def translate_component_to_task(
         task_code: DS 分配的任务编码
         task_name: 步骤名 (默认取 component.name)
         datasource_lookup: {id: DataSource} 用于 SQL 节点查 datasource 类型
+        node_cfg: DAG 节点级覆盖配置:
+            fail_strategy: "end"(默认,失败终止) | "skip"(失败跳过,继续后续节点)
+            retry_times / retry_interval: 失败重试次数 / 间隔(分钟)
+            timeout: 超时(分钟), 覆盖组件级配置
+            priority: HIGHEST/HIGH/MEDIUM/LOW/LOWEST
     """
     cfg = component.config_json or {}
     ctype = component.type
@@ -195,7 +223,45 @@ def translate_component_to_task(
     else:
         raise ValueError(f"不支持的组件类型: {ctype}")
 
+    _apply_node_overrides(base, node_cfg)
     return base
+
+
+_VALID_PRIORITIES = {"HIGHEST", "HIGH", "MEDIUM", "LOW", "LOWEST"}
+
+
+def _apply_node_overrides(base: Dict[str, Any], node_cfg: Optional[Dict[str, Any]]):
+    """把 DAG 节点级配置应用到 DS task definition 上"""
+    if not node_cfg:
+        return
+
+    retry_times = node_cfg.get("retry_times")
+    if retry_times:
+        base["failRetryTimes"] = str(int(retry_times))
+        base["failRetryInterval"] = str(max(int(node_cfg.get("retry_interval", 1)), 1))
+
+    timeout_min = node_cfg.get("timeout")
+    if timeout_min:
+        base["timeoutFlag"] = "OPEN"
+        base["timeout"] = max(int(timeout_min), 1)
+        base["timeoutNotifyStrategy"] = "FAILED"
+
+    priority = (node_cfg.get("priority") or "").upper()
+    if priority in _VALID_PRIORITIES:
+        base["taskPriority"] = priority
+
+    # 失败跳过：DS standalone 无原生 task 级 "失败继续" 语义，
+    # 通过包裹脚本吞掉退出码实现（SHELL 子 shell / PYTHON try-except）。
+    # 注意：失败跳过与重试互斥 — 退出码恒为 0，DS 不会触发重试。
+    if node_cfg.get("fail_strategy") == "skip":
+        params = base.get("taskParams", {})
+        raw = params.get("rawScript")
+        if raw is not None:
+            if base.get("taskType") == "PYTHON":
+                params["rawScript"] = _wrap_python_fail_skip(raw)
+            else:
+                params["rawScript"] = _wrap_shell_fail_skip(raw)
+            base["failRetryTimes"] = "0"
 
 
 def build_task_relations(task_codes: List[int]) -> List[Dict[str, Any]]:
@@ -393,6 +459,7 @@ def translate_workflow_dag(
             task_name=node.get("name") or comp.name,
             datasource_lookup=datasource_lookup,
             ds_datasource_id_map=ds_datasource_id_map,
+            node_cfg=node,
         )
         task_defs.append(td)
 
