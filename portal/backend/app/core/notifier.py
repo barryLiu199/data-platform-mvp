@@ -78,9 +78,13 @@ def send_email(to: str, subject: str, body: str, smtp_config: dict = None) -> bo
         return False
 
 
+# admin API 存的是 dingtalk_webhook/wecom_webhook，历史 alert_rule 存的是 dingtalk/wecom
+_CHANNEL_TYPE_ALIASES = {"dingtalk_webhook": "dingtalk", "wecom_webhook": "wecom"}
+
+
 async def _send_via_channel(channel, title: str, content: str) -> bool:
     """通过 SysNotifyChannel 渠道对象发送通知"""
-    ctype = channel.channel_type
+    ctype = _CHANNEL_TYPE_ALIASES.get(channel.channel_type, channel.channel_type)
     config = channel.config or {}
 
     if ctype == "feishu_webhook":
@@ -116,6 +120,27 @@ async def _send_via_channel(channel, title: str, content: str) -> bool:
     return False
 
 
+async def notify_channels(channel_ids: list, title: str, content: str) -> bool:
+    """按渠道 ID 列表分发通知，任一渠道成功即返回 True"""
+    from app.core.database import SessionLocal
+    from app.models.sys_notify_channel import SysNotifyChannel
+
+    db = SessionLocal()
+    try:
+        channels = (
+            db.query(SysNotifyChannel)
+            .filter(SysNotifyChannel.id.in_(channel_ids), SysNotifyChannel.enabled == True)
+            .all()
+        )
+    finally:
+        db.close()
+    if not channels:
+        logger.warning(f"通知渠道均不可用: {channel_ids}")
+        return False
+    results = [await _send_via_channel(ch, title, content) for ch in channels]
+    return any(results)
+
+
 async def notify(rule, event: dict) -> bool:
     """根据规则的通知配置分发通知
 
@@ -144,23 +169,7 @@ async def notify(rule, event: dict) -> bool:
     # 多渠道分发（任一渠道成功即视为成功）
     channel_ids = getattr(rule, "notify_channel_ids", None)
     if channel_ids:
-        from app.core.database import SessionLocal
-        from app.models.sys_notify_channel import SysNotifyChannel
-
-        db = SessionLocal()
-        try:
-            channels = (
-                db.query(SysNotifyChannel)
-                .filter(SysNotifyChannel.id.in_(channel_ids), SysNotifyChannel.enabled == True)
-                .all()
-            )
-        finally:
-            db.close()
-        if channels:
-            results = [await _send_via_channel(ch, title, content) for ch in channels]
-            return any(results)
-        logger.warning(f"规则 {rule.name} 配置的渠道均不可用: {channel_ids}")
-        return False
+        return await notify_channels(channel_ids, title, content)
 
     config = rule.notify_config or {}
 
@@ -256,6 +265,7 @@ async def send_wecom_webhook(webhook_url: str, title: str, content: str) -> bool
 
 async def test_channel(channel_type: str, config: dict) -> bool:
     """测试通知渠道连通性"""
+    channel_type = _CHANNEL_TYPE_ALIASES.get(channel_type, channel_type)
     title = "测试通知"
     content = "这是一条通知渠道测试消息，收到说明配置正确。"
     if channel_type == "feishu_webhook":

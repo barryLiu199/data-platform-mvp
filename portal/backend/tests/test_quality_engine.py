@@ -307,3 +307,83 @@ def test_all_generators_registered():
         "row_count", "timeliness", "dict_ref", "custom_sql", "cross_table_check",
     }
     assert set(GENERATORS.keys()) == expected
+
+
+# ─── 质量告警通知 ──────────────────────────────────────────────────────
+
+class TestNotifyCheckResult:
+    def _rule(self, notify_enabled=True, channel_ids=None):
+        rule = _make_rule()
+        rule.name = "订单非空检查"
+        rule.notify_enabled = notify_enabled
+        rule.notify_channel_ids = channel_ids if channel_ids is not None else [1, 2]
+        rule.column_name = "email"
+        return rule
+
+    def test_fail_sends_notification(self):
+        from unittest.mock import patch, AsyncMock
+        from app.core.quality_engine import _notify_check_result
+
+        rule = self._rule()
+        with patch("app.core.notifier.notify_channels", new_callable=AsyncMock, return_value=True) as mock_nc:
+            _notify_check_result(rule, {"actual_value": 5.0, "expected_value": 0}, "fail")
+        mock_nc.assert_called_once()
+        args = mock_nc.call_args[0]
+        assert args[0] == [1, 2]
+        assert "订单非空检查" in args[1]
+        assert "未通过" in args[1]
+        assert "实际值" in args[2]
+
+    def test_error_includes_message(self):
+        from unittest.mock import patch, AsyncMock
+        from app.core.quality_engine import _notify_check_result
+
+        rule = self._rule()
+        with patch("app.core.notifier.notify_channels", new_callable=AsyncMock, return_value=True) as mock_nc:
+            _notify_check_result(rule, {"error_message": "connection refused"}, "error")
+        content = mock_nc.call_args[0][2]
+        assert "connection refused" in content
+        assert "执行出错" in content
+
+    def test_notify_exception_swallowed(self):
+        from unittest.mock import patch, AsyncMock
+        from app.core.quality_engine import _notify_check_result
+
+        rule = self._rule()
+        with patch("app.core.notifier.notify_channels", new_callable=AsyncMock, side_effect=Exception("boom")):
+            _notify_check_result(rule, {}, "fail")  # 不应抛出
+
+
+class TestSaveResultNotifyGate:
+    """_save_result 只在 fail/error 且 notify_enabled 且配置渠道时触发通知"""
+
+    def _setup(self, status, notify_enabled, channel_ids):
+        from unittest.mock import patch
+        from app.core.quality_engine import _save_result
+
+        rule = _make_rule()
+        rule.name = "r"
+        rule.notify_enabled = notify_enabled
+        rule.notify_channel_ids = channel_ids
+
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = None
+
+        with patch("app.core.quality_engine._notify_check_result") as mock_notify:
+            _save_result(db, rule, {"status": status}, "manual")
+        return mock_notify
+
+    def test_fail_with_channels_notifies(self):
+        assert self._setup("fail", True, [1]).called
+
+    def test_error_with_channels_notifies(self):
+        assert self._setup("error", True, [1]).called
+
+    def test_pass_does_not_notify(self):
+        assert not self._setup("pass", True, [1]).called
+
+    def test_disabled_does_not_notify(self):
+        assert not self._setup("fail", False, [1]).called
+
+    def test_no_channels_does_not_notify(self):
+        assert not self._setup("fail", True, None).called

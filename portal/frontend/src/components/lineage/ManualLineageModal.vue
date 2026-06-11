@@ -15,8 +15,8 @@ const emit = defineEmits<{
 interface DSOption { id: number; name: string }
 
 const datasources = ref<DSOption[]>([])
-const srcDsId = ref<number | null>(null)
-const tgtDsId = ref<number | null>(null)
+const srcDsId = ref<number | undefined>(undefined)
+const tgtDsId = ref<number | undefined>(undefined)
 const srcTables = ref<string[]>([])
 const tgtTables = ref<string[]>([])
 const srcCols = ref<string[]>([])
@@ -81,8 +81,8 @@ watch(() => props.visible, (v) => {
   if (v) {
     loadDatasources()
     // 重置表单
-    srcDsId.value = null
-    tgtDsId.value = null
+    srcDsId.value = undefined
+    tgtDsId.value = undefined
     form.value = {
       source_table: '', source_column: '',
       target_table: '', target_column: '',

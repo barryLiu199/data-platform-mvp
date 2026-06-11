@@ -536,6 +536,45 @@ def _save_result(db: Session, rule: QualityRule, result: Dict[str, Any], trigger
     rule.last_check_status = status
     db.commit()
 
+    if status in ("fail", "error") and rule.notify_enabled and rule.notify_channel_ids:
+        _notify_check_result(rule, result, status)
+
+
+def _notify_check_result(rule: QualityRule, result: Dict[str, Any], status: str):
+    """质量检查失败/出错时按规则配置的渠道发送告警（同步上下文，自建事件循环）"""
+    import asyncio
+    from app.core.notifier import notify_channels
+
+    status_text = "未通过" if status == "fail" else "执行出错"
+    title = f"⚠ 数据质量告警: {rule.name} {status_text}"
+    content = (
+        f"**规则**: {rule.name}\n"
+        f"**模板**: {rule.template_code}\n"
+        f"**表**: {rule.table_name or '-'}\n"
+        f"**状态**: {status_text}\n"
+    )
+    if result.get("actual_value") is not None:
+        content += f"**实际值**: {result['actual_value']}\n"
+    if result.get("expected_value") is not None:
+        content += f"**阈值**: {result['expected_value']}\n"
+    if result.get("error_message"):
+        content += f"**错误**: {str(result['error_message'])[:200]}\n"
+    content += f"**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+    coro = notify_channels(rule.notify_channel_ids, title, content)
+    try:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(coro)
+        else:
+            # 调用方在 async 上下文内（如 workflow 同步触发），换线程跑新事件循环
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                ex.submit(asyncio.run, coro).result(timeout=30)
+    except Exception:
+        logger.exception(f"质量规则 {rule.id} 告警通知发送失败")
+
 
 def preview_sql(rule_id: int, db: Session) -> Dict[str, Any]:
     """预览规则将要执行的 SQL（不实际执行）"""

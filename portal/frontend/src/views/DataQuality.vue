@@ -235,6 +235,15 @@
               </a-form-item>
             </a-col>
           </a-row>
+          <a-row v-if="form.notify_enabled" :gutter="16">
+            <a-col :span="24">
+              <a-form-item label="通知渠道" extra="检查未通过或执行出错时发送告警；渠道在 系统管理 > 通知配置 中维护">
+                <a-select v-model="form.notify_channel_ids" multiple placeholder="选择通知渠道" allow-clear>
+                  <a-option v-for="ch in notifyChannels" :key="ch.id" :value="ch.id">{{ ch.name }}</a-option>
+                </a-select>
+              </a-form-item>
+            </a-col>
+          </a-row>
         </template>
       </a-form>
     </a-modal>
@@ -249,7 +258,7 @@ import PageHeader from '../components/PageHeader.vue'
 import {
   getQualityTemplates, getQualityRules, createQualityRule, updateQualityRule,
   deleteQualityRule, toggleQualityRule, executeQualityRule, batchExecuteQuality,
-  getQualityStats, getDatasources,
+  getQualityStats, getDatasources, adminListChannels,
 } from '../api'
 
 const loading = ref(false)
@@ -262,6 +271,16 @@ const rules = ref<any[]>([])
 const templates = ref<any[]>([])
 const datasources = ref<any[]>([])
 const stats = ref<any>({})
+const notifyChannels = ref<any[]>([])
+
+async function loadChannels() {
+  try {
+    const res: any = await adminListChannels()
+    notifyChannels.value = (res || []).filter((c: any) => c.enabled)
+  } catch {
+    // 无 system:config 权限时静默降级，渠道下拉为空
+  }
+}
 
 const filters = reactive({
   template_code: undefined as string | undefined,
@@ -323,6 +342,7 @@ function openEdit(record: any) {
     severity: record.severity,
     trigger_type: record.trigger_type,
     notify_enabled: record.notify_enabled,
+    notify_channel_ids: record.notify_channel_ids || [],
   })
   if (record.config?.fields) {
     fieldsInput.value = record.config.fields.join(', ')
@@ -429,7 +449,7 @@ onMounted(async () => {
   ])
   templates.value = tplRes
   datasources.value = (dsRes?.items || dsRes || [])
-  await Promise.all([loadRules(), loadStats()])
+  await Promise.all([loadRules(), loadStats(), loadChannels()])
 })
 </script>
 

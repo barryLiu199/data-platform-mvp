@@ -198,6 +198,7 @@ def list_rules(
                 "trigger_type": r.trigger_type,
                 "trigger_workflow_id": r.trigger_workflow_id,
                 "notify_enabled": r.notify_enabled,
+                "notify_channel_ids": r.notify_channel_ids,
                 "enabled": r.enabled,
                 "last_check_time": r.last_check_time.isoformat() if r.last_check_time else None,
                 "last_check_status": r.last_check_status,
