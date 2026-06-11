@@ -138,7 +138,7 @@ async def test_send_via_channel_feishu():
     from app.core.notifier import _send_via_channel
 
     channel = MagicMock()
-    channel.type = "feishu_webhook"
+    channel.channel_type = "feishu_webhook"
     channel.config = {"webhook_url": "https://example.com/hook"}
     channel.name = "test"
 
@@ -153,7 +153,7 @@ async def test_send_via_channel_missing_url_returns_false():
     from app.core.notifier import _send_via_channel
 
     channel = MagicMock()
-    channel.type = "feishu_webhook"
+    channel.channel_type = "feishu_webhook"
     channel.config = {}  # no webhook_url
     channel.name = "empty"
 
@@ -166,7 +166,7 @@ async def test_send_via_channel_unknown_type_returns_false():
     from app.core.notifier import _send_via_channel
 
     channel = MagicMock()
-    channel.type = "sms"
+    channel.channel_type = "sms"
     channel.config = {}
     channel.name = "sms_channel"
 

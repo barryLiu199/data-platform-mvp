@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,11 +11,59 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.permissions import require_permission
 from app.core.quality_engine import execute_rule, preview_sql
+from app.core.validators import IdentifierError, validate_sql_identifier
 from app.models.quality import QualityRule, QualityRuleTemplate, QualityCheckResult
 from app.models.datasource import DataSource
 from app.models.user import SysUser
 
 router = APIRouter(prefix="/quality", tags=["数据质量"])
+
+
+# 配置中需要校验为 SQL 标识符的字段名
+_CONFIG_IDENT_FIELDS = (
+    "field", "date_field",
+    "dict_table", "dict_field",
+    "table_a", "table_b",
+)
+# 配置中数组型标识符字段：每个元素都要校验
+_CONFIG_IDENT_ARRAY_FIELDS = ("fields",)
+
+
+def _validate_config_identifiers(config: dict) -> dict:
+    """对 config 内的标识符类字段统一校验。custom_sql 模板的 sql 字段不在这里校验。"""
+    if not isinstance(config, dict):
+        return config
+    for key in _CONFIG_IDENT_FIELDS:
+        v = config.get(key)
+        if v:
+            try:
+                validate_sql_identifier(v, field=f"config.{key}")
+            except IdentifierError as e:
+                raise ValueError(str(e))
+    for key in _CONFIG_IDENT_ARRAY_FIELDS:
+        arr = config.get(key)
+        if isinstance(arr, list):
+            for i, v in enumerate(arr):
+                if v:
+                    try:
+                        validate_sql_identifier(v, field=f"config.{key}[{i}]")
+                    except IdentifierError as e:
+                        raise ValueError(str(e))
+    # cross_table_check: join_keys / compare_fields 是 [{a,b}, ...]
+    for key in ("join_keys", "compare_fields"):
+        arr = config.get(key)
+        if isinstance(arr, list):
+            for i, item in enumerate(arr):
+                if not isinstance(item, dict):
+                    continue
+                for sub in ("a", "b"):
+                    v = item.get(sub)
+                    if v:
+                        try:
+                            validate_sql_identifier(v, field=f"config.{key}[{i}].{sub}")
+                        except IdentifierError as e:
+                            raise ValueError(str(e))
+    return config
 
 
 # ===== Schemas =====
@@ -24,8 +72,8 @@ class RuleCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     template_code: str
     datasource_id: Optional[int] = None
-    table_name: Optional[str] = None
-    column_name: Optional[str] = None
+    table_name: Optional[str] = Field(None, max_length=256)
+    column_name: Optional[str] = Field(None, max_length=256)
     config: dict = Field(default_factory=dict)
     severity: str = Field(default="warning")
     trigger_type: str = Field(default="manual")
@@ -33,18 +81,50 @@ class RuleCreate(BaseModel):
     notify_enabled: bool = False
     notify_channel_ids: Optional[list] = None
 
+    @field_validator("table_name", "column_name")
+    @classmethod
+    def _check_ident(cls, v):
+        if v is not None and v != "":
+            try:
+                validate_sql_identifier(v, field="name")
+            except IdentifierError as e:
+                raise ValueError(str(e))
+        return v
+
+    @field_validator("config")
+    @classmethod
+    def _check_config(cls, v):
+        return _validate_config_identifiers(v)
+
 
 class RuleUpdate(BaseModel):
     name: Optional[str] = None
     datasource_id: Optional[int] = None
-    table_name: Optional[str] = None
-    column_name: Optional[str] = None
+    table_name: Optional[str] = Field(None, max_length=256)
+    column_name: Optional[str] = Field(None, max_length=256)
     config: Optional[dict] = None
     severity: Optional[str] = None
     trigger_type: Optional[str] = None
     trigger_workflow_id: Optional[int] = None
     notify_enabled: Optional[bool] = None
     notify_channel_ids: Optional[list] = None
+
+    @field_validator("table_name", "column_name")
+    @classmethod
+    def _check_ident(cls, v):
+        if v is not None and v != "":
+            try:
+                validate_sql_identifier(v, field="name")
+            except IdentifierError as e:
+                raise ValueError(str(e))
+        return v
+
+    @field_validator("config")
+    @classmethod
+    def _check_config(cls, v):
+        if v is None:
+            return v
+        return _validate_config_identifiers(v)
 
 
 # ===== Templates =====

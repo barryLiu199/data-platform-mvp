@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.validators import IdentifierError, validate_sql_identifier
 from app.core.permissions import check_resource_permission
 from app.models.datasource import DataSource
 from app.models.user import SysUser
@@ -100,8 +101,9 @@ def list_columns_api(
     ds = _get_ds_or_404(db, datasource_id)
     if not check_resource_permission(db, current_user, "datasource", datasource_id, "read"):
         raise HTTPException(status_code=403, detail="无权访问该数据源")
-    import re
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', table):
+    try:
+        validate_sql_identifier(table, field="table")
+    except IdentifierError:
         raise HTTPException(status_code=400, detail="表名格式非法")
 
     t = (ds.type or "").lower()
@@ -288,8 +290,9 @@ def preview_table(
     if not check_resource_permission(db, current_user, "datasource", datasource_id, "read"):
         raise HTTPException(status_code=403, detail="无权访问该数据源")
     # 允许 schema.table 格式 — 严格校验防 SQL 注入
-    import re
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', table):
+    try:
+        validate_sql_identifier(table, field="table")
+    except IdentifierError:
         raise HTTPException(status_code=400, detail="表名格式非法")
     try:
         import sqlalchemy as sa

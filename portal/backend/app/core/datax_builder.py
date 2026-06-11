@@ -5,6 +5,7 @@ v1 支持 MySQL ↔ MySQL，后续可扩展 PostgreSQL/Hive/Oracle。
 """
 from typing import List, Dict, Any, Optional
 
+from app.core.validators import IdentifierError, validate_sql_identifier
 from app.models.datasource import DataSource
 
 
@@ -174,9 +175,10 @@ def build_datax_job(
     # preSql / postSql：用户显式传入优先；否则全量同步自动 TRUNCATE
     effective_pre = [s for s in (pre_sql or []) if s and s.strip()]
     if not effective_pre and sync_type == "full" and truncate_before_write:
-        import re
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', target_table):
-            raise ValueError(f"Invalid target table name: {target_table}")
+        try:
+            validate_sql_identifier(target_table, field="target_table")
+        except IdentifierError as e:
+            raise ValueError(f"Invalid target table name: {target_table}") from e
         effective_pre = [f"TRUNCATE TABLE {target_table}"]
     if effective_pre:
         writer_param["preSql"] = effective_pre

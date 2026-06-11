@@ -6,30 +6,19 @@ from unittest.mock import MagicMock, patch, call
 # ---- run_all_migrations 调用所有子函数 ----
 
 def test_run_all_migrations_calls_all():
-    """确保 run_all_migrations() 调用全部迁移函数"""
+    """确保 run_all_migrations() 调用全部迁移函数
+
+    动态发现模块内所有 _migrate_* 函数并全部 mock：
+    新增迁移函数时无需更新本测试，且漏 mock 会导致真实 SQL 在 sqlite 上执行而报错。
+    """
+    import inspect
     import app.core.migrations as m
 
     funcs = [
-        "_migrate_sync_task_columns",
-        "_migrate_component_columns",
-        "_migrate_workflow_run_columns",
-        "_migrate_workflow_project_id",
-        "_migrate_workflow_version_table",
-        "_migrate_alert_rule_table",
-        "_migrate_word_root_table",
-        "_migrate_component_sort_order",
-        "_migrate_folder_sort_order",
-        "_migrate_sys_user_columns",
-        "_migrate_sys_user_oauth_unique",
-        "_migrate_sys_notify_channel_table",
-        "_migrate_alert_rule_channel_ids",
-        "_migrate_workflow_params",
-        "_migrate_table_lineage",
-        "_migrate_lock_columns",
-        "_migrate_backfill_tables",
-        "_migrate_backfill_ds_columns",
-        "_migrate_quality_tables",
+        name for name, obj in vars(m).items()
+        if name.startswith("_migrate_") and inspect.isfunction(obj)
     ]
+    assert funcs, "未发现任何 _migrate_* 迁移函数"
 
     mocks = {f: MagicMock() for f in funcs}
     with patch.multiple(m, **mocks):

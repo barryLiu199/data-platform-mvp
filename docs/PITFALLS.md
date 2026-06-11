@@ -434,3 +434,19 @@ grep -A3 "for leaf in leaves" portal/backend/app/core/column_lineage_service.py
 
 **关联**：阶段三B 字段血缘上线 commit 8ad225e
 
+
+---
+
+## [2026-06-11] test_db_adapter 引用已删符号导致 pytest 全量收集中断
+
+**现象**：`pytest tests/` 直接 `Interrupted: 1 error during collection`，一个文件的 import 错误让全部 474 条测试无法运行。
+
+**根因**：`db_adapter.py` 重构为 `db_adapters/` 包后（`_table_exists_query` 从模块函数变为 adapter 实例方法），`tests/test_db_adapter.py` 仍 import 旧符号。模块级 import 失败 → pytest 收集阶段崩溃，不是单测失败而是全局阻断。
+
+**正确做法**：重构删除/移动公共符号时，同一个 commit 内必须 `grep -rn "符号名" tests/` 同步修掉所有引用。测试改为通过 `get_adapter(ds)._table_exists_query(table)` 调用实例方法。
+
+**附带踩坑**：
+1. `test_notifier.py` 引用的 `_send_via_channel`、`send_dingtalk_webhook(secret=)` 是按测试先行（TDD）写的，实现一直没补 — 测试和实现脱节数周无人发现，因为全量收集早就被 test_db_adapter 阻断了。本次补齐实现（多渠道分发 + 钉钉加签）。
+2. `test_migrations.py` 维护硬编码迁移函数列表，新增 `_migrate_column_lineage_tables` 后漏 mock → 真实 SQL 在 sqlite 上执行报 `no such table: information_schema.TABLES`。改为 `inspect` 动态发现全部 `_migrate_*` 函数，永不过期。
+
+**涉及文件**：`tests/test_db_adapter.py`、`tests/test_notifier.py`、`tests/test_migrations.py`、`app/core/notifier.py`

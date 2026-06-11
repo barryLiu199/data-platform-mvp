@@ -1,11 +1,10 @@
-"""Tests for app/core/db_adapter.py — SQLAlchemy URL 生成 + 表存在查询"""
+"""Tests for db_adapters 包 — SQLAlchemy URL 生成 + 表存在查询 + registry"""
 import pytest
 from unittest.mock import MagicMock
 
-from app.core.db_adapter import sqlalchemy_url, _table_exists_query
+from app.core.db_adapter import sqlalchemy_url
+from app.core.db_adapters import get_adapter
 
-
-# ---- sqlalchemy_url ----
 
 def _ds(type_: str, user: str = "u", pwd: str = "p", host: str = "h", port: int = 3306, db: str = "mydb"):
     ds = MagicMock()
@@ -17,6 +16,8 @@ def _ds(type_: str, user: str = "u", pwd: str = "p", host: str = "h", port: int 
     ds.database_name = db
     return ds
 
+
+# ---- sqlalchemy_url ----
 
 def test_mysql_url():
     url = sqlalchemy_url(_ds("mysql"))
@@ -51,11 +52,6 @@ def test_hive_url():
     assert url.startswith("hive://")
 
 
-def test_unsupported_type_raises():
-    with pytest.raises(ValueError, match="不支持"):
-        sqlalchemy_url(_ds("mongodb"))
-
-
 def test_url_contains_credentials():
     url = sqlalchemy_url(_ds("mysql", user="admin", pwd="s3cr3t"))
     assert "admin" in url
@@ -68,36 +64,50 @@ def test_url_contains_host_and_port():
     assert "13306" in url
 
 
+# ---- get_adapter registry ----
+
+def test_get_adapter_returns_correct_type():
+    from app.core.db_adapters.mysql import MysqlAdapter
+    from app.core.db_adapters.hive import HiveAdapter
+    assert isinstance(get_adapter(_ds("mysql")), MysqlAdapter)
+    assert isinstance(get_adapter(_ds("hive")), HiveAdapter)
+
+
+def test_get_adapter_case_insensitive():
+    from app.core.db_adapters.mysql import MysqlAdapter
+    assert isinstance(get_adapter(_ds("MySQL")), MysqlAdapter)
+
+
+def test_get_adapter_unsupported_type_raises():
+    with pytest.raises(ValueError, match="不支持"):
+        get_adapter(_ds("foobar"))
+
+
 # ---- _table_exists_query ----
 
 def test_mysql_table_exists_query():
-    sql, params = _table_exists_query("mysql", "mydb", "orders")
+    sql, params = get_adapter(_ds("mysql"))._table_exists_query("orders")
     assert "information_schema" in sql.lower()
     assert params == ("mydb", "orders")
 
 
 def test_postgresql_table_exists_query():
-    sql, params = _table_exists_query("postgresql", "mydb", "orders")
+    sql, params = get_adapter(_ds("postgresql"))._table_exists_query("orders")
     assert "information_schema" in sql.lower()
     assert "orders" in params
 
 
 def test_sqlserver_table_exists_query():
-    sql, params = _table_exists_query("sqlserver", "mydb", "orders")
+    sql, _params = get_adapter(_ds("sqlserver"))._table_exists_query("orders")
     assert "information_schema" in sql.lower()
 
 
 def test_oracle_table_exists_query():
-    sql, params = _table_exists_query("oracle", "myschema", "orders")
+    sql, params = get_adapter(_ds("oracle"))._table_exists_query("orders")
     assert "all_tables" in sql.lower()
-    assert params == ("MYSCHEMA", "ORDERS")  # oracle 转大写
+    assert params == ("MYDB", "ORDERS")  # oracle 转大写
 
 
 def test_hive_table_exists_query():
-    sql, params = _table_exists_query("hive", "mydb", "orders")
+    sql, _params = get_adapter(_ds("hive"))._table_exists_query("orders")
     assert "information_schema" in sql.lower()
-
-
-def test_unsupported_db_type_raises():
-    with pytest.raises(ValueError, match="未实现"):
-        _table_exists_query("mongodb", "mydb", "col")

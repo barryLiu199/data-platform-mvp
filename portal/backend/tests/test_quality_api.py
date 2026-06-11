@@ -243,7 +243,122 @@ class TestExecution:
 
         resp = quality_client.post("/api/quality/rules/preview-sql", json={"rule_id": rule.id})
         assert resp.status_code == 200
-        assert "amount IS NULL" in resp.json()["sql"]
+        sql = resp.json()["sql"]
+        # 标识符走方言引号（默认 mysql 反引号）
+        assert "`amount` IS NULL" in sql
+        assert "`orders`" in sql
+
+
+# ===== Injection / Identifier Validation =====
+
+class TestIdentifierValidation:
+    """Schema 层 field_validator 应在创建/更新时拒绝非法标识符 → 422"""
+
+    def test_create_rejects_evil_table_name(self, quality_client, seed_templates):
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "evil_table",
+            "template_code": "not_null",
+            "datasource_id": 1,
+            "table_name": "t;DROP TABLE users--",
+            "config": {"field": "x"},
+        })
+        assert resp.status_code == 422
+
+    def test_create_rejects_evil_column_name(self, quality_client, seed_templates):
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "evil_col",
+            "template_code": "not_null",
+            "datasource_id": 1,
+            "table_name": "orders",
+            "column_name": "x WHERE 1=1",
+            "config": {"field": "x"},
+        })
+        assert resp.status_code == 422
+
+    def test_create_rejects_evil_field_in_config(self, quality_client, seed_templates):
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "evil_field",
+            "template_code": "not_null",
+            "datasource_id": 1,
+            "table_name": "orders",
+            "config": {"field": "x; DROP TABLE y--"},
+        })
+        assert resp.status_code == 422
+
+    def test_create_rejects_evil_fields_array(self, quality_client, seed_templates):
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "evil_fields",
+            "template_code": "uniqueness",
+            "datasource_id": 1,
+            "table_name": "orders",
+            "config": {"fields": ["legit_col", "x UNION SELECT 1"]},
+        })
+        assert resp.status_code == 422
+
+    def test_create_rejects_evil_dict_table(self, quality_client, seed_templates):
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "evil_dict",
+            "template_code": "dict_ref",
+            "datasource_id": 1,
+            "table_name": "orders",
+            "config": {
+                "field": "type",
+                "dict_table": "dim`backtick",
+                "dict_field": "code",
+            },
+        })
+        assert resp.status_code == 422
+
+    def test_create_rejects_evil_date_field(self, quality_client, seed_templates):
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "evil_date",
+            "template_code": "timeliness",
+            "datasource_id": 1,
+            "table_name": "orders",
+            "config": {"date_field": "dt; --", "expected_date": "today"},
+        })
+        assert resp.status_code == 422
+
+    def test_create_accepts_legal_identifiers(self, quality_client, seed_templates):
+        """正向回归：合法标识符（含 schema.table）应当通过"""
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "legal",
+            "template_code": "not_null",
+            "datasource_id": 1,
+            "table_name": "public.orders",
+            "column_name": "amount_v2",
+            "config": {"field": "amount_v2"},
+        })
+        assert resp.status_code == 200
+
+    def test_update_rejects_evil_table_name(self, quality_client, seed_templates, db_session):
+        rule = QualityRule(
+            name="updt", template_code="not_null",
+            config={"field": "x"}, datasource_id=1, table_name="orders",
+            created_by=1,
+        )
+        db_session.add(rule)
+        db_session.commit()
+        db_session.refresh(rule)
+
+        resp = quality_client.put(f"/api/quality/rules/{rule.id}", json={
+            "table_name": "evil] UNION SELECT--",
+        })
+        assert resp.status_code == 422
+
+    def test_regex_pattern_value_allowed_in_config(self, quality_client, seed_templates):
+        """pattern 值不是标识符 — 任意字符串都允许（执行时走参数化）"""
+        resp = quality_client.post("/api/quality/rules", json={
+            "name": "regex_ok",
+            "template_code": "regex_match",
+            "datasource_id": 1,
+            "table_name": "clients",
+            "config": {
+                "field": "phone",
+                "pattern": "^1[3-9]\\d{9}$",
+            },
+        })
+        assert resp.status_code == 200
 
 
 # ===== Results =====

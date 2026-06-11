@@ -1,6 +1,6 @@
-import re
 from typing import List, Dict, Any, Optional, Tuple
 from app.core.db_adapters import AdapterBase
+from app.core.validators import IdentifierError, quote_identifier, validate_sql_identifier
 
 
 class HiveAdapter(AdapterBase):
@@ -47,9 +47,11 @@ class HiveAdapter(AdapterBase):
         conn = self.connect(db_override=schema or self._database)
         try:
             cur = conn.cursor()
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', table):
-                raise ValueError(f"Invalid table name: {table}")
-            cur.execute(f"DESCRIBE {table}")
+            try:
+                validate_sql_identifier(table, field="table")
+            except IdentifierError as e:
+                raise ValueError(f"Invalid table name: {table}") from e
+            cur.execute(f"DESCRIBE {quote_identifier('hive', table)}")
             return [
                 {"name": r[0], "type": r[1], "nullable": True, "comment": r[2] or ""}
                 for r in cur.fetchall()

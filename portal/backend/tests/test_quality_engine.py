@@ -1,14 +1,18 @@
-"""Tests for app/core/quality_engine.py — SQL 生成 + 评估 + 跨表比较"""
+"""Tests for app/core/quality_engine.py — SQL 生成 + 评估 + 跨表比较
+
+新签名：_gen_*(rule, config, dialect) → (sql, params, meta)
+所有标识符走 quote_identifier 包裹（mysql 默认反引号），
+所有用户字符串/数值走参数化 %s。
+"""
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from datetime import date
 
 from app.core.quality_engine import (
     _gen_not_null, _gen_uniqueness, _gen_null_rate, _gen_value_range,
     _gen_regex_match, _gen_row_count, _gen_timeliness, _gen_dict_ref,
     _gen_custom_sql, _gen_cross_table_check,
-    _evaluate, compare_datasets, execute_rule, preview_sql,
-    GENERATORS,
+    _evaluate, compare_datasets, GENERATORS,
 )
 from app.models.quality import QualityRule
 
@@ -27,113 +31,166 @@ def _make_rule(**kwargs):
 # ─── SQL Generators ──────────────────────────────────────────────────────
 
 class TestGenNotNull:
-    def test_basic(self):
+    def test_basic_mysql(self):
         rule = _make_rule(table_name="users")
-        sql, meta = _gen_not_null(rule, {"field": "email"})
-        assert "users" in sql
-        assert "email IS NULL" in sql
+        sql, params, meta = _gen_not_null(rule, {"field": "email"}, "mysql")
+        assert "`users`" in sql
+        assert "`email` IS NULL" in sql
+        assert params == ()
         assert meta["pass_when"] == "eq_zero"
+
+    def test_basic_postgresql(self):
+        rule = _make_rule(table_name="users")
+        sql, _, _ = _gen_not_null(rule, {"field": "email"}, "postgresql")
+        assert '"users"' in sql
+        assert '"email" IS NULL' in sql
 
 
 class TestGenUniqueness:
     def test_single_field(self):
         rule = _make_rule(table_name="accounts")
-        sql, meta = _gen_uniqueness(rule, {"fields": ["account_id"]})
-        assert "COUNT(*) - COUNT(DISTINCT account_id)" in sql
-        assert "accounts" in sql
+        sql, params, meta = _gen_uniqueness(rule, {"fields": ["account_id"]}, "mysql")
+        assert "COUNT(*) - COUNT(DISTINCT `account_id`)" in sql
+        assert "`accounts`" in sql
+        assert params == ()
         assert meta["pass_when"] == "eq_zero"
 
     def test_multi_fields(self):
         rule = _make_rule(table_name="trades")
-        sql, _ = _gen_uniqueness(rule, {"fields": ["trade_date", "trade_no"]})
-        assert "trade_date, trade_no" in sql
+        sql, _, _ = _gen_uniqueness(
+            rule, {"fields": ["trade_date", "trade_no"]}, "mysql"
+        )
+        assert "`trade_date`, `trade_no`" in sql
 
 
 class TestGenNullRate:
     def test_basic(self):
         rule = _make_rule(table_name="positions")
-        sql, meta = _gen_null_rate(rule, {"field": "market_value", "threshold_pct": 10})
-        assert "positions" in sql
-        assert "market_value IS NULL" in sql
+        sql, params, meta = _gen_null_rate(
+            rule, {"field": "market_value", "threshold_pct": 10}, "mysql"
+        )
+        assert "`positions`" in sql
+        assert "`market_value` IS NULL" in sql
+        assert params == ()
         assert meta["threshold"] == 10
         assert meta["pass_when"] == "lte"
 
     def test_default_threshold(self):
         rule = _make_rule(table_name="t")
-        _, meta = _gen_null_rate(rule, {"field": "x"})
+        _, _, meta = _gen_null_rate(rule, {"field": "x"}, "mysql")
         assert meta["threshold"] == 5
 
 
 class TestGenValueRange:
-    def test_min_and_max(self):
+    def test_min_and_max_parameterized(self):
         rule = _make_rule(table_name="nav")
-        sql, meta = _gen_value_range(rule, {"field": "nav_value", "min_value": 0, "max_value": 100})
-        assert "nav_value < 0" in sql
-        assert "nav_value > 100" in sql
+        sql, params, meta = _gen_value_range(
+            rule, {"field": "nav_value", "min_value": 0, "max_value": 100}, "mysql"
+        )
+        # 关键：min/max 走 %s 参数化，不再裸拼
+        assert "`nav_value` < %s" in sql
+        assert "`nav_value` > %s" in sql
+        assert params == (0, 100)
         assert meta["pass_when"] == "eq_zero"
 
     def test_only_max(self):
         rule = _make_rule(table_name="t")
-        sql, _ = _gen_value_range(rule, {"field": "x", "max_value": 50})
-        assert "x > 50" in sql
-        assert "x <" not in sql
+        sql, params, _ = _gen_value_range(
+            rule, {"field": "x", "max_value": 50}, "mysql"
+        )
+        assert "`x` > %s" in sql
+        assert "<" not in sql.split("WHERE")[1]
+        assert params == (50,)
+
+    def test_neither_bound(self):
+        rule = _make_rule(table_name="t")
+        sql, params, _ = _gen_value_range(rule, {"field": "x"}, "mysql")
+        # 没给 bound 时退化到 1=0（永假）
+        assert "1=0" in sql
+        assert params == ()
 
 
 class TestGenRegexMatch:
-    def test_basic(self):
+    def test_pattern_parameterized(self):
+        """关键安全测试：pattern 走参数化绑定，不再裸拼"""
         rule = _make_rule(table_name="clients")
-        sql, meta = _gen_regex_match(rule, {"field": "phone", "pattern": "^1[3-9]\\d{9}$"})
-        assert "REGEXP" in sql
-        assert "phone" in sql
+        pattern = "^1[3-9]\\d{9}$"
+        sql, params, meta = _gen_regex_match(
+            rule, {"field": "phone", "pattern": pattern}, "mysql"
+        )
+        assert "REGEXP %s" in sql
+        assert "`phone`" in sql
+        # pattern 不能出现在 SQL 字符串里
+        assert pattern not in sql
+        assert params == (pattern,)
         assert meta["pass_when"] == "eq_zero"
+
+    def test_injection_pattern_neutralized(self):
+        """即使 pattern 含恶意 SQL，也只会作为字面量传入"""
+        rule = _make_rule(table_name="t")
+        evil = "'; DROP TABLE users; --"
+        sql, params, _ = _gen_regex_match(
+            rule, {"field": "x", "pattern": evil}, "mysql"
+        )
+        assert "DROP TABLE" not in sql
+        assert params == (evil,)
 
 
 class TestGenRowCount:
     def test_basic(self):
         rule = _make_rule(table_name="daily_nav")
-        sql, meta = _gen_row_count(rule, {"threshold_pct": 30})
+        sql, params, meta = _gen_row_count(rule, {"threshold_pct": 30}, "mysql")
         assert "COUNT(*)" in sql
-        assert "daily_nav" in sql
+        assert "`daily_nav`" in sql
+        assert params == ()
         assert meta["pass_when"] == "row_count_volatility"
         assert meta["threshold"] == 30
 
 
 class TestGenTimeliness:
-    def test_today(self):
+    def test_today_parameterized(self):
         rule = _make_rule(table_name="market_data")
-        sql, meta = _gen_timeliness(rule, {"date_field": "trade_date", "expected_date": "today"})
-        assert "trade_date" in sql
-        assert date.today().isoformat() in sql
+        sql, params, meta = _gen_timeliness(
+            rule, {"date_field": "trade_date", "expected_date": "today"}, "mysql"
+        )
+        assert "`trade_date` >= %s" in sql
+        assert params == (date.today().isoformat(),)
         assert meta["pass_when"] == "gt_zero"
 
-    def test_specific_date(self):
+    def test_specific_date_parameterized(self):
         rule = _make_rule(table_name="t")
-        sql, _ = _gen_timeliness(rule, {"date_field": "dt", "expected_date": "2026-05-01"})
-        assert "2026-05-01" in sql
+        sql, params, _ = _gen_timeliness(
+            rule, {"date_field": "dt", "expected_date": "2026-05-01"}, "mysql"
+        )
+        assert "%s" in sql
+        assert "2026-05-01" not in sql  # 不再裸拼
+        assert params == ("2026-05-01",)
 
 
 class TestGenDictRef:
     def test_basic(self):
         rule = _make_rule(table_name="trades")
-        sql, meta = _gen_dict_ref(rule, {
+        sql, params, meta = _gen_dict_ref(rule, {
             "field": "security_type",
             "dict_table": "dim_security_type",
             "dict_field": "code",
-        })
-        assert "LEFT JOIN dim_security_type" in sql
-        assert "a.security_type = b.code" in sql
+        }, "mysql")
+        assert "LEFT JOIN `dim_security_type`" in sql
+        assert "a.`security_type` = b.`code`" in sql
+        assert params == ()
         assert meta["pass_when"] == "eq_zero"
 
 
 class TestGenCustomSql:
     def test_basic(self):
         rule = _make_rule()
-        sql, meta = _gen_custom_sql(rule, {
+        sql, params, meta = _gen_custom_sql(rule, {
             "sql": "SELECT COUNT(*) FROM orders WHERE amount < 0",
             "operator": "=",
             "threshold": 0,
-        })
+        }, "mysql")
         assert sql == "SELECT COUNT(*) FROM orders WHERE amount < 0"
+        assert params == ()
         assert meta["pass_when"] == "custom"
         assert meta["operator"] == "="
         assert meta["threshold"] == 0
@@ -142,8 +199,11 @@ class TestGenCustomSql:
 class TestGenCrossTable:
     def test_returns_marker(self):
         rule = _make_rule()
-        sql, config = _gen_cross_table_check(rule, {"ds_id_a": 1, "table_a": "t1"})
+        sql, params, config = _gen_cross_table_check(
+            rule, {"ds_id_a": 1, "table_a": "t1"}, "mysql"
+        )
         assert sql == "__CROSS_TABLE__"
+        assert params == ()
 
 
 # ─── Evaluate ────────────────────────────────────────────────────────────
